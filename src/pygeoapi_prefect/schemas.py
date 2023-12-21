@@ -27,7 +27,7 @@ class Link(pydantic.BaseModel):
         for field_name in fields:
             value = getattr(self, field_name, None)
             if value is not None:
-                fragment = f'{self.__fields__[field_name].alias}="{value}"'
+                fragment = f'{self.model_fields[field_name].alias}="{value}"'
                 result = "; ".join((result, fragment))
         return result
 
@@ -125,10 +125,10 @@ class ProcessIOSchema(pydantic.BaseModel):
     max_properties: Optional[int] = pydantic.Field(None, ge=0, alias="maxProperties")
     min_properties: Optional[int] = pydantic.Field(0, ge=0, alias="minProperties")
     required: Optional[  # type: ignore [valid-type]
-        pydantic.conlist(str, min_items=1, unique_items=True)
+        pydantic.conset(str, min_length=1)
     ] = None
     enum: Optional[  # type: ignore [valid-type]
-        pydantic.conlist(Any, min_items=1, unique_items=False)
+        pydantic.conset(Any, min_length=1)
     ] = None
     type_: Optional[ProcessIOType] = pydantic.Field(None, alias="type")
     not_: Optional["ProcessIOSchema"] = pydantic.Field(None, alias="not")
@@ -173,7 +173,7 @@ class AdditionalProcessIOParameters(ProcessMetadata):
     value: List[Union[str, float, int, List[Dict], Dict]]
 
     class Config:
-        smart_union = True
+        pass
 
 
 class ProcessInput(ProcessOutput):
@@ -213,16 +213,16 @@ class ExecutionInputBBox(pydantic.BaseModel):
     crs: Optional[str] = "http://www.opengis.net/def/crs/OGC/1.3/CRS84"
 
 
-class ExecutionInputValueNoObjectArray(pydantic.BaseModel):
-    __root__: List[
+class ExecutionInputValueNoObjectArray(pydantic.RootModel):
+    root: List[
         Union[ExecutionInputBBox, int, str, "ExecutionInputValueNoObjectArray"]
     ]
 
 
-class ExecutionInputValueNoObject(pydantic.BaseModel):
+class ExecutionInputValueNoObject(pydantic.RootModel):
     """Models the `inputValueNoObject.yml` schema defined in OAPIP."""
 
-    __root__: Union[
+    root: Union[
         ExecutionInputBBox,
         bool,
         float,
@@ -230,9 +230,6 @@ class ExecutionInputValueNoObject(pydantic.BaseModel):
         ExecutionInputValueNoObjectArray,
         str,
     ]
-
-    class Config:
-        smart_union = True
 
 
 class ExecutionFormat(pydantic.BaseModel):
@@ -294,6 +291,9 @@ class ExecuteRequest(pydantic.BaseModel):
     response: Optional[ProcessResponseType] = ProcessResponseType.raw
     subscriber: Optional[ExecutionSubscriber] = None
 
+    # Custom additional properties not strictly specified by OAPIP
+    properties: Dict[str, Any] = {}
+
     class Config:
         use_enum_values = True
 
@@ -303,16 +303,16 @@ class OutputExecutionResultInternal(pydantic.BaseModel):
     media_type: str
 
 
-class ExecutionDocumentSingleOutput(pydantic.BaseModel):
-    __root__: Union[
+class ExecutionDocumentSingleOutput(pydantic.RootModel):
+    root: Union[
         ExecutionInputValueNoObject,
         ExecutionQualifiedInputValue,
         Link,
     ]
 
 
-class ExecutionDocumentResult(pydantic.BaseModel):
-    __root__: Dict[str, ExecutionDocumentSingleOutput]
+class ExecutionDocumentResult(pydantic.RootModel):
+    root: Dict[str, ExecutionDocumentSingleOutput]
 
 
 class JobStatusInfoBase(pydantic.BaseModel):
