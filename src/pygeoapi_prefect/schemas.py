@@ -125,10 +125,10 @@ class ProcessIOSchema(pydantic.BaseModel):
     max_properties: Optional[int] = pydantic.Field(None, ge=0, alias="maxProperties")
     min_properties: Optional[int] = pydantic.Field(0, ge=0, alias="minProperties")
     required: Optional[  # type: ignore [valid-type]
-        pydantic.conset(str, min_length=1)
+        pydantic.conset(str, min_items=1)
     ] = None
     enum: Optional[  # type: ignore [valid-type]
-        pydantic.conset(Any, min_length=1)
+        pydantic.conset(Any, min_items=1)
     ] = None
     type_: Optional[ProcessIOType] = pydantic.Field(None, alias="type")
     not_: Optional["ProcessIOSchema"] = pydantic.Field(None, alias="not")
@@ -213,16 +213,16 @@ class ExecutionInputBBox(pydantic.BaseModel):
     crs: Optional[str] = "http://www.opengis.net/def/crs/OGC/1.3/CRS84"
 
 
-class ExecutionInputValueNoObjectArray(pydantic.RootModel):
-    root: List[
+class ExecutionInputValueNoObjectArray(pydantic.BaseModel):
+    __root__: List[
         Union[ExecutionInputBBox, int, str, "ExecutionInputValueNoObjectArray"]
     ]
 
 
-class ExecutionInputValueNoObject(pydantic.RootModel):
+class ExecutionInputValueNoObject(pydantic.BaseModel):
     """Models the `inputValueNoObject.yml` schema defined in OAPIP."""
 
-    root: Union[
+    __root__: Union[
         ExecutionInputBBox,
         bool,
         float,
@@ -303,16 +303,16 @@ class OutputExecutionResultInternal(pydantic.BaseModel):
     media_type: str
 
 
-class ExecutionDocumentSingleOutput(pydantic.RootModel):
-    root: Union[
+class ExecutionDocumentSingleOutput(pydantic.BaseModel):
+    __root__: Union[
         ExecutionInputValueNoObject,
         ExecutionQualifiedInputValue,
         Link,
     ]
 
 
-class ExecutionDocumentResult(pydantic.RootModel):
-    root: Dict[str, ExecutionDocumentSingleOutput]
+class ExecutionDocumentResult(pydantic.BaseModel):
+    __root__: Dict[str, ExecutionDocumentSingleOutput]
 
 
 class JobStatusInfoBase(pydantic.BaseModel):
