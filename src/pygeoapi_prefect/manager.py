@@ -448,8 +448,11 @@ class PrefectManager(BaseManager):
         logger.warning(f"{execution_request=}")
 
         # Add ownership information to the request
-        execution_request.properties["user"] = g.user
-        execution_request.properties["roles"] = g.roles
+        try:
+            execution_request.properties["user"] = g.user
+            execution_request.properties["roles"] = g.roles
+        except AttributeError as err:
+            logger.warning(err)
 
         execution_result = self._execute(
             process_id=process_id,
@@ -554,7 +557,7 @@ class PrefectManager(BaseManager):
                     generated_outputs = partial_info[0].generated_outputs
                 else:
                     generated_outputs = partial_info.generated_outputs
-        except (MissingResult, UnfinishedRun) as err:
+        except (MissingResult, UnfinishedRun, AttributeError) as err:
             logger.warning(f"Could not get flow_run results: {err}")
 
         execution_request = ExecuteRequest.model_construct(**flow_run.parameters["execution_request"])
