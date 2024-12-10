@@ -542,7 +542,10 @@ class PrefectManager(BaseManager):
         try:
             partial_info = flow_run.state.result(raise_on_failure=False)
             if partial_info is not None:
-                generated_outputs = partial_info.generated_outputs
+                if isinstance(partial_info, tuple):
+                    generated_outputs = partial_info[0].generated_outputs
+                else:
+                    generated_outputs = partial_info.generated_outputs
         except (MissingResult, UnfinishedRun) as err:
             logger.warning(f"Could not get flow_run results: {err}")
 
