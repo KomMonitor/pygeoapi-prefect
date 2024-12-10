@@ -28,7 +28,7 @@ from pygeoapi.process.base import (
     JobNotFoundError
 )
 from pygeoapi.process.manager.base import BaseManager
-from pygeoapi.util import JobStatus
+from pygeoapi.util import JobStatus, RequestedResponse, Subscriber
 
 from .process.base import BasePrefectProcessor
 from .schemas import (
@@ -137,7 +137,10 @@ class PrefectManager(BaseManager):
                 flow_run, seen_flows[flow_run.flow_id]
             )
             jobs.append(self._job_status_to_external(job_status))
-        return jobs
+        return {
+            'jobs': jobs,
+            'numberMatched': len(jobs)
+        }
 
     def _job_id_to_flow_run_name(self, job_id: str) -> str:
         """Convert input job_id onto corresponding prefect flow_run name."""
@@ -403,6 +406,9 @@ class PrefectManager(BaseManager):
             process_id: str,
             data_dict: dict,
             execution_mode: Optional[RequestedProcessExecutionMode] = None,
+            requested_outputs: Optional[dict] = None,
+            subscriber: Optional[Subscriber] = None,
+            requested_response: Optional[RequestedResponse] = RequestedResponse.raw.value
     ) -> tuple[str, Any, JobStatus, Optional[dict[str, str]]]:
         """pygeoapi compatibility method.
 
@@ -433,6 +439,8 @@ class PrefectManager(BaseManager):
         https://github.com/geopython/pygeoapi/issues/1285
 
         """
+        # ToDo: properly implement the additional arguments
+        #  requested_outputs, subscriber and requested_response
         # execution_request = ExecuteRequest(**data_dict)
         # this can raise a pydantic validation error
         execution_request = ExecuteRequest(inputs=data_dict)
