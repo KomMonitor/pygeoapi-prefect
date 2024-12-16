@@ -125,10 +125,10 @@ class ProcessIOSchema(pydantic.BaseModel):
     max_properties: Optional[int] = pydantic.Field(None, ge=0, alias="maxProperties")
     min_properties: Optional[int] = pydantic.Field(0, ge=0, alias="minProperties")
     required: Optional[  # type: ignore [valid-type]
-        pydantic.conset(str, min_items=1)
+        pydantic.conset(str, min_length=1)
     ] = None
     enum: Optional[  # type: ignore [valid-type]
-        pydantic.conset(Any, min_items=1)
+        pydantic.conset(Any, min_length=1)
     ] = None
     type_: Optional[ProcessIOType] = pydantic.Field(None, alias="type")
     not_: Optional["ProcessIOSchema"] = pydantic.Field(None, alias="not")
@@ -209,20 +209,20 @@ class ProcessDescription(ProcessSummary):
 
 
 class ExecutionInputBBox(pydantic.BaseModel):
-    bbox: List[float] = pydantic.Field(..., min_items=4, max_items=4)
+    bbox: List[float] = pydantic.Field(..., min_length=4, max_length=4)
     crs: Optional[str] = "http://www.opengis.net/def/crs/OGC/1.3/CRS84"
 
 
-class ExecutionInputValueNoObjectArray(pydantic.BaseModel):
-    __root__: List[
+class ExecutionInputValueNoObjectArray(pydantic.RootModel):
+    root: List[
         Union[ExecutionInputBBox, int, str, "ExecutionInputValueNoObjectArray"]
     ]
 
 
-class ExecutionInputValueNoObject(pydantic.BaseModel):
+class ExecutionInputValueNoObject(pydantic.RootModel):
     """Models the `inputValueNoObject.yml` schema defined in OAPIP."""
 
-    __root__: Union[
+    root: Union[
         ExecutionInputBBox,
         bool,
         float,
@@ -303,16 +303,16 @@ class OutputExecutionResultInternal(pydantic.BaseModel):
     media_type: str
 
 
-class ExecutionDocumentSingleOutput(pydantic.BaseModel):
-    __root__: Union[
+class ExecutionDocumentSingleOutput(pydantic.RootModel):
+    root: Union[
         ExecutionInputValueNoObject,
         ExecutionQualifiedInputValue,
         Link,
     ]
 
 
-class ExecutionDocumentResult(pydantic.BaseModel):
-    __root__: Dict[str, ExecutionDocumentSingleOutput]
+class ExecutionDocumentResult(pydantic.RootModel):
+    root: Dict[str, ExecutionDocumentSingleOutput]
 
 
 class JobStatusInfoBase(pydantic.BaseModel):
