@@ -50,7 +50,7 @@ class BasePrefectProcessor(BaseProcessor, abc.ABC):
         """
 
         # do we even need this? - maybe the pygeoapi.openapi needs it?
-        return self.process_description.dict(exclude_none=True, by_alias=True)
+        return self.process_description.model_dump(exclude_none=True, by_alias=True)
 
     @metadata.setter
     def metadata(self, metadata: Dict):

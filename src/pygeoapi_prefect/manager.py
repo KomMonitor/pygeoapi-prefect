@@ -283,10 +283,10 @@ class PrefectManager(BaseManager):
         run_params = {
             "job_id": job_id,
             "result_storage_block": processor.result_storage_block,
-            "process_description": processor.process_description.dict(
+            "process_description": processor.process_description.model_dump(
                 by_alias=True, exclude_none=True
             ),
-            "execution_request": execution_request.dict(
+            "execution_request": execution_request.model_dump(
                 by_alias=True, exclude_none=True
             ),
         }
@@ -346,7 +346,7 @@ class PrefectManager(BaseManager):
         manager's behavior of saving generated outputs to disk.
         """
 
-        execution_parameters = execution_request.dict(
+        execution_parameters = execution_request.model_dump(
             by_alias=True, exclude_none=True)
         input_parameters = execution_parameters.get("inputs", {})
         logger.warning(f"{execution_parameters=}")
