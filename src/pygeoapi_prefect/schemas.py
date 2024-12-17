@@ -168,9 +168,13 @@ class ProcessMetadata(pydantic.BaseModel):
     href: Optional[str] = None
 
 
-class AdditionalProcessIOParameters(ProcessMetadata):
+class Parameter(pydantic.BaseModel):
     name: str
     value: List[Union[str, float, int, List[Dict], Dict]]
+
+
+class AdditionalProcessIOParameters(ProcessMetadata):
+    parameters: List[Parameter]
 
     class Config:
         pass
@@ -206,6 +210,7 @@ class ProcessDescription(ProcessSummary):
     inputs: Dict[str, ProcessInput]
     outputs: Dict[str, ProcessOutput]
     example: Optional[dict]
+    additional_parameters: Optional[AdditionalProcessIOParameters] = None
 
 
 class ExecutionInputBBox(pydantic.BaseModel):
