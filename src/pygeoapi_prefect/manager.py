@@ -443,6 +443,7 @@ class PrefectManager(BaseManager):
         # Add ownership information to the request
         execution_request.properties["user"] = g.user
         execution_request.properties["roles"] = g.roles
+        execution_request.properties["token"] = g.token
 
         execution_result = self._execute(
             process_id=process_id,
