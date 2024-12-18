@@ -21,8 +21,10 @@ from pygeoapi_prefect.process.base import BasePrefectProcessor
     log_prints=True,
 )
 def simple_flow(
+    self,
     job_id: str,
     result_storage_block: str | None,
+    result_storage_basepath: str | None,
     process_description: schemas.ProcessDescription,
     execution_request: schemas.ExecuteRequest,
 ) -> schemas.JobStatusInfoInternal:
@@ -33,16 +35,16 @@ def simple_flow(
     logger = get_run_logger()
     logger.debug(f"Inside the hi_prefect_world flow - locals: {locals()}")
     try:
-        name = execution_request.inputs["name"].__root__
+        name = execution_request.inputs["name"].root
     except KeyError:
         raise JobError("Cannot process without a name")
     else:
         msg = execution_request.inputs.get("message")
-        message = msg.__root__ if msg is not None else ""
+        message = msg.root if msg is not None else ""
         if result_storage_block is not None:
             file_system = Block.load(result_storage_block)
         else:
-            file_system = LocalFileSystem()
+            file_system = LocalFileSystem(basepath=result_storage_basepath)
         print(f"file_system: {file_system}")
         result_value = f"Hello {name}! {message}".strip()
         result_path = f"{job_id}/output-result.txt"

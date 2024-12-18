@@ -283,6 +283,7 @@ class PrefectManager(BaseManager):
         run_params = {
             "job_id": job_id,
             "result_storage_block": processor.result_storage_block,
+            "result_storage_basepath": processor.result_storage_basepath,
             "process_description": processor.process_description.model_dump(
                 by_alias=True, exclude_none=True
             ),
@@ -298,7 +299,7 @@ class PrefectManager(BaseManager):
             if chosen_mode == ProcessExecutionMode.sync_execute:
                 logger.info("synchronous execution without deployment")
                 try:
-                    processor.process_flow(**run_params)
+                    flow_fn(**run_params)
                 except Exception as e:
                     print(e)
             else:
