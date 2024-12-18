@@ -512,7 +512,7 @@ class PrefectManager(BaseManager):
     def get_job_result(self, job_id: str) -> Tuple[str, Any]:
         job = self.get_job_internal(job_id)
         # load from files
-        return job_id, {k: m.model_dump() for k, m in job.generated_outputs.items()}
+        return job_id, {k: m.model_dump() for k, m in job.generated_outputs.items()} if job.generated_outputs else {}
 
     # def get_output_data_raw(
     #         self, generated_output: OutputExecutionResultInternal, process_id: str
