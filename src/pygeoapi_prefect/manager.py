@@ -278,6 +278,7 @@ class PrefectManager(BaseManager):
           synchronously
         """
         run_params = {
+            "processor": processor,
             "job_id": job_id,
             "result_storage_block": processor.result_storage_block,
             "process_description": processor.process_description.dict(
