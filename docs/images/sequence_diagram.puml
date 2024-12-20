@@ -1,0 +1,24 @@
+@startuml
+
+actor User as user
+participant pygeoapi as pygeoapi
+participant PrefectManager as manager
+'participant PrefectManager as manager << pygeoapi_prefect.manager >>
+participant Process as process
+participant Prefect as prefect
+database Database as db
+collections "Data storage" as storage
+
+user -> pygeoapi : execution request
+pygeoapi -> manager: call execute_process
+manager -> process: call execute_process
+process -> prefect: call flow
+prefect -> db: register flow run
+prefect -> prefect: execute flow
+prefect -> storage: store JobStatusInfoInternal as pickle
+process -> storage: store flow run result as file
+manager <- storage: retrieve JobStatusInfoInternal and file
+pygeoapi <- manager: return infos for response
+user <- pygeoapi: return response
+
+@enduml
