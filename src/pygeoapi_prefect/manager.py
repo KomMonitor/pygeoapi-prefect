@@ -414,8 +414,8 @@ class PrefectManager(BaseManager):
                 return {
                     'results': [
                         {
-                            'type': output_media_type,
-                            'mime_type': f'{self.output_dir.basepath}/{filename}',
+                            'mime_type': output_media_type,
+                            'location': f'{self.output_dir.basepath}/{filename}',
                             'filename': filename
                         }
                     ]
