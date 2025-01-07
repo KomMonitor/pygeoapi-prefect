@@ -331,4 +331,4 @@ class JobStatusInfoInternal(JobStatusInfoBase):
     negotiated_execution_mode: Optional[ProcessExecutionMode] = None
     requested_response_type: Optional[ProcessResponseType] = None
     requested_outputs: Optional[Dict[str, ExecutionOutput]] = None
-    generated_outputs: Optional[Dict[str, OutputExecutionResultInternal]] = None
+    generated_outputs: Optional[Dict[str, Any]] = None
