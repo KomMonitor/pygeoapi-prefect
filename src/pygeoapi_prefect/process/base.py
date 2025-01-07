@@ -22,8 +22,6 @@ class PrefectDeployment:
 
 class BasePrefectProcessor(BaseProcessor, abc.ABC):
     deployment_info: PrefectDeployment | None
-    result_storage_block: str | None
-    result_storage_basepath: str | None
 
     def __init__(self, processor_def: dict):
         super().__init__(processor_def, process_metadata=None)
@@ -36,14 +34,10 @@ class BasePrefectProcessor(BaseProcessor, abc.ABC):
             )
         else:
             self.deployment_info = None
-        if (storage := processor_def.get("prefect", {}).get("result_storage_block")) is not None:
-            self.result_storage_block = storage
+        if (outputs := processor_def.get("prefect", {}).get("outputs")) is not None:
+            self.outputs = outputs
         else:
-            self.result_storage_block = None
-        if (storage := processor_def.get("prefect", {}).get("result_storage_basepath")) is not None:
-            self.result_storage_basepath = storage
-        else:
-            self.result_storage_basepath = None
+            self.outputs = {}
 
     @property
     def metadata(self) -> Dict:

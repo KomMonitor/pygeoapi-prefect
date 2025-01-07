@@ -7,7 +7,8 @@ participant PrefectManager as manager
 participant Process as process
 participant Prefect as prefect
 database Database as db
-collections "Data storage" as storage
+collections "Data storage" as storage1
+collections "Data storage" as storage2
 
 user -> pygeoapi : execution request
 pygeoapi -> manager: call execute_process
@@ -15,9 +16,10 @@ manager -> process: call execute_process
 process -> prefect: call flow
 prefect -> db: register flow run
 prefect -> prefect: execute flow
-prefect -> storage: store JobStatusInfoInternal as pickle
-process -> storage: store flow run result as file
-manager <- storage: retrieve JobStatusInfoInternal and file
+process -> storage2: store result as file
+prefect -> storage1: store result info as file
+manager <- storage1: retrieve result info
+manager <- storage2: retrieve result
 pygeoapi <- manager: return infos for response
 user <- pygeoapi: return response
 

@@ -12,11 +12,14 @@ from typing import (
 import anyio
 import httpx
 from flask import g
+from pathlib import Path
 from prefect import flow
 from prefect.client.orchestration import get_client
 from prefect.client.schemas import FlowRun
+from prefect.blocks.core import Block
 from prefect.deployments import run_deployment
 from prefect.exceptions import MissingResult, UnfinishedRun
+from prefect.filesystems import LocalFileSystem
 from prefect.server.schemas import filters
 from prefect.server.schemas.core import Flow
 from prefect.server.schemas.states import StateType
@@ -30,8 +33,9 @@ from pygeoapi.process.base import (
 from pygeoapi.process.manager.base import BaseManager
 from pygeoapi.util import JobStatus, RequestedResponse, Subscriber
 
-from .process.base import BasePrefectProcessor
-from .schemas import (
+from pygeoapi_prefect.utils import get_storage
+from pygeoapi_prefect.process.base import BasePrefectProcessor
+from pygeoapi_prefect.schemas import (
     ExecuteRequest,
     JobStatusInfoInternal,
     ProcessExecutionMode,
@@ -52,14 +56,7 @@ class PrefectManager(BaseManager):
     setting a flow run's `name` and use that as the equivalent to the pygeoapi
     job id.
     """
-
-    # is_async: bool = True
     _flow_run_name_prefix = "pygeoapi_job_"
-
-    def __init__(self, manager_def: dict):
-        super().__init__(manager_def)
-        self.is_async = True
-
     prefect_state_map = {
         StateType.SCHEDULED: JobStatus.accepted,
         StateType.PENDING: JobStatus.accepted,
@@ -71,6 +68,30 @@ class PrefectManager(BaseManager):
         StateType.PAUSED: JobStatus.accepted,
         StateType.CANCELLING: JobStatus.dismissed,
     }
+
+    def __init__(self, manager_def: dict):
+        super().__init__(manager_def)
+        self.is_async = True
+        if self.connection is not None:
+            result_storage = self.connection.get('result_storage', f'file://{Path.home()}/.prefect/storage')
+            if result_storage.startswith('file://'):
+                self.result_storage = LocalFileSystem(basepath=result_storage.removeprefix('file://'))
+            else:
+                self.result_storage =  Block.load(result_storage)
+            self.result_serializer = self.connection.get('result_serializer', 'json')
+        else:
+            self.result_storage = LocalFileSystem(basepath=f'{Path.home()}/.prefect/storage')
+            self.result_serializer = 'json'
+        if self.output_dir is None:
+            self.output_dir = self.result_storage
+        else:
+            if self.output_dir.startswith('file://'):
+                self.output_dir = LocalFileSystem(basepath=self.output_dir.removeprefix('file://'))
+            else:
+                self.output_dir =  Block.load(self.output_dir)
+            logger.warning("The job manager's 'output_dir' is only used for outputs from plain pygeoapi processes "
+                           "and ignored for prefect processes. For prefect processes, output must be handled by "
+                           "the flow itself.")
 
     def add_job(self, job_metadata: dict) -> str:
         """Add a job.
@@ -267,7 +288,7 @@ class PrefectManager(BaseManager):
             processor: BasePrefectProcessor,
             chosen_mode: ProcessExecutionMode,
             execution_request: ExecuteRequest,
-    ) -> JobStatusInfoInternal:
+    ) -> tuple[str, Any, JobStatus]:
         """Execute custom prefect processor.
 
         Execution is triggered by one of three ways:
@@ -282,24 +303,22 @@ class PrefectManager(BaseManager):
         """
         run_params = {
             "job_id": job_id,
-            "result_storage_block": processor.result_storage_block,
-            "result_storage_basepath": processor.result_storage_basepath,
-            "process_description": processor.process_description.model_dump(
-                by_alias=True, exclude_none=True
-            ),
             "execution_request": execution_request.model_dump(
                 by_alias=True, exclude_none=True
             ),
         }
+        flow_run_name = self._job_id_to_flow_run_name(job_id)
+        flow_result = {}
         if processor.deployment_info is None:  # will run locally and sync
             flow_fn = processor.process_flow
-            flow_fn.flow_run_name = self._job_id_to_flow_run_name(job_id)
+            flow_fn.flow_run_name = flow_run_name
             flow_fn.persist_result = True
-            flow_fn.log_prints = True
+            flow_fn.result_storage = self.result_storage
+            flow_fn.result_serializer = self.result_serializer
             if chosen_mode == ProcessExecutionMode.sync_execute:
                 logger.info("synchronous execution without deployment")
                 try:
-                    flow_fn(**run_params)
+                    flow_result = flow_fn(**run_params)
                 except Exception as e:
                     print(e)
             else:
@@ -317,19 +336,30 @@ class PrefectManager(BaseManager):
             run_kwargs = {
                 "name": deployment_name,
                 "parameters": run_params,
-                "flow_run_name": self._job_id_to_flow_run_name(job_id),
+                "flow_run_name": flow_run_name,
             }
             if chosen_mode == ProcessExecutionMode.sync_execute:
                 logger.info("synchronous execution with deployment")
-                run_deployment(**run_kwargs)
+                flow_result = run_deployment(**run_kwargs)
             else:
                 logger.info("asynchronous execution")
-                run_deployment(
+                flow_result = run_deployment(
                     **run_kwargs, timeout=0  # has the effect of returning immediately
                 )
-        updated_status_info = self.get_job_internal(job_id)
-        logger.info(f"updated_status_info: {updated_status_info}")
-        return updated_status_info
+        # ToDo: check/fix async execution and deployments
+        # flow_run, prefect_flow = _get_prefect_flow_run(flow_run_name)
+        # flow_result = flow_run.state.result(raise_on_failure=False)
+        generated_outputs = []
+        mime_types = []
+        for result in flow_result['results']:
+            provider = result['provider']
+            storage_type = flow_result['providers'][provider]['type']
+            basepath = flow_result['providers'][provider]['basepath']
+            output_dir = get_storage(storage_type, basepath=basepath)
+            generated_outputs.append(output_dir.read_path(result['filename']))
+            mime_types.append(result['mime_type'])
+        # multiple outputs via multipart/related are not supported yet
+        return mime_types[0], generated_outputs[0], JobStatus.successful
 
     def _execute_base_processor(
             self,
@@ -346,7 +376,6 @@ class PrefectManager(BaseManager):
         After the process is executed, this method mimics the default pygeoapi
         manager's behavior of saving generated outputs to disk.
         """
-
         execution_parameters = execution_request.model_dump(
             by_alias=True, exclude_none=True)
         input_parameters = execution_parameters.get("inputs", {})
@@ -367,40 +396,36 @@ class PrefectManager(BaseManager):
         )
         def executor(data_: dict):
             """Run a vanilla pygeoapi process as a prefect flow.
-
-            Since we are adapting a vanilla pygeoapi processor to run with
-            prefect, we must ensure the processor is called with the expected
-            parameters.
             """
-            return processor.execute(data_)
-
-        try:
-            output_media_type, generated_output = executor(input_parameters)
-        except RuntimeError as err:
-            # TODO: Change the exception once pygeoapi gets
-            #  process-execution-related exceptions in its main process.exceptions
-            #  module
-            raise ProcessorExecuteError(str(err)) from err
-            # raise exceptions.ProcessError() from err
-        else:
-            # now try to save outputs to local disk, similarly to what the
-            # `pygeoapi.BaseManager._execute_handler_sync()` method does
-            filename = f"{processor.metadata['id']}-{job_id}"
-            job_path = self.output_dir / filename if self.output_dir is not None else None
-
-            if job_path is not None:
-                logger.debug(f'writing output to {job_path}')
+            try:
+                output_media_type, generated_output = processor.execute(data_)
+            except RuntimeError as err:
+                raise ProcessorExecuteError(str(err)) from err
+            else:
+                # now try to save outputs to local disk, similarly to what the
+                # `pygeoapi.BaseManager._execute_handler_sync()` method does
+                filename = f"{processor.metadata['id']}-{job_id}"
+                logger.debug(f'writing output to {self.output_dir.basepath}/{filename}')
                 if isinstance(generated_output, dict):
-                    mode = 'w'
-                    data = json.dumps(generated_output, sort_keys=True, indent=4)
-                    encoding = 'utf-8'
+                    contents = json.dumps(generated_output, sort_keys=True, indent=4).encode('utf-8')
                 else:
-                    mode = 'wb'
-                    data = generated_output
-                    encoding = None
-                with job_path.open(mode=mode, encoding=encoding) as fh:
-                    fh.write(data)
-            return output_media_type, generated_output, JobStatus.successful
+                    contents = generated_output
+                self.output_dir.write_path(filename, contents)
+                return {
+                    'results': [
+                        {
+                            'type': output_media_type,
+                            'mime_type': f'{self.output_dir.basepath}/{filename}',
+                            'filename': filename
+                        }
+                    ]
+                }
+
+        executor.result_storage = self.result_storage
+        executor.result_serializer = self.result_serializer
+        flow_result = executor(input_parameters)
+        generated_output = self.output_dir.read_path(flow_result['results'][0]['filename'])
+        return flow_result['results'][0]['mime_type'], generated_output, JobStatus.successful
 
     def execute_process(
             self,
@@ -410,7 +435,7 @@ class PrefectManager(BaseManager):
             requested_outputs: Optional[dict] = None,
             subscriber: Optional[Subscriber] = None,
             requested_response: Optional[RequestedResponse] = RequestedResponse.raw.value
-    ) -> tuple[str, Any, JobStatus, Optional[dict[str, str]]]:
+    ) -> tuple[str, str, Any, JobStatus, Optional[dict[str, str]]]:
         """pygeoapi compatibility method.
 
         Contrary to pygeoapi, which stores requested execution parameters as
@@ -500,13 +525,9 @@ class PrefectManager(BaseManager):
         )
         job_id = str(uuid.uuid4())
         if isinstance(processor, BasePrefectProcessor):
-            job_status = self._execute_prefect_processor(
+            output_media_type, generated_output, current_job_status = self._execute_prefect_processor(
                 job_id, processor, chosen_mode, execution_request
             )
-            # result = job_status.generated_outputs.get("result")
-            output_media_type = ""
-            generated_output = ""
-            current_job_status = job_status.status
         else:
             output_media_type, generated_output, current_job_status = (
                 self._execute_base_processor(job_id, processor, execution_request)
@@ -524,27 +545,6 @@ class PrefectManager(BaseManager):
         job = self.get_job_internal(job_id)
         # load from files
         return job_id, {k: m.model_dump() for k, m in job.generated_outputs.items()}
-
-    # def get_output_data_raw(
-    #         self, generated_output: OutputExecutionResultInternal, process_id: str
-    # ) -> bytes:
-    #     """Get output data as bytes."""
-    #     processor = self.get_processor(process_id)
-    #     if isinstance(processor, BasePrefectProcessor):
-    #         if (sb := processor.result_storage_block) is not None:
-    #             file_system = Block.load(sb)
-    #             result = file_system.read_path(generated_output.location)
-    #         else:
-    #             result = super().get_output_data_raw(generated_output, process_id)
-    #     else:
-    #         result = super().get_output_data_raw(generated_output, process_id)
-    #     return result
-    #
-    # def get_output_data_link_href(
-    #         self, generated_output: OutputExecutionResultInternal, process_id: str
-    # ) -> str:
-    #     # we need to convert internal location into a proper href for a link
-    #     return super().get_output_data_link_href(generated_output, process_id)
 
     def _flow_run_to_job_status(
             self, flow_run: FlowRun, prefect_flow: Flow
