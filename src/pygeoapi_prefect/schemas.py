@@ -214,7 +214,7 @@ class ProcessDescription(ProcessSummary):
 
 
 class ExecutionInputBBox(pydantic.BaseModel):
-    bbox: List[float] = pydantic.Field(..., min_items=4, max_items=4)
+    bbox: List[float] = pydantic.Field(..., min_length=4, max_length=4)
     crs: Optional[str] = "http://www.opengis.net/def/crs/OGC/1.3/CRS84"
 
 
@@ -336,4 +336,4 @@ class JobStatusInfoInternal(JobStatusInfoBase):
     negotiated_execution_mode: Optional[ProcessExecutionMode] = None
     requested_response_type: Optional[ProcessResponseType] = None
     requested_outputs: Optional[Dict[str, ExecutionOutput]] = None
-    generated_outputs: Optional[Dict[str, OutputExecutionResultInternal]] = None
+    generated_outputs: Optional[Dict[str, Any]] = None

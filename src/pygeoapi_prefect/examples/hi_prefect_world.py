@@ -6,8 +6,8 @@ from prefect import (
 )
 from prefect.blocks.core import Block
 from prefect.filesystems import LocalFileSystem
-from pygeoapi.process import exceptions
-from prefect.task_runners import SequentialTaskRunner
+from prefect.task_runners import PrefectTaskRunner
+from pygeoapi.process.base import JobError
 
 # don't perform relative imports because otherwise prefect deployment won't
 # work properly
@@ -18,11 +18,13 @@ from pygeoapi_prefect.process.base import BasePrefectProcessor
 @flow(
     persist_result=True,
     log_prints=True,
-    task_runner=SequentialTaskRunner(),
+    task_runner=PrefectTaskRunner(),
 )
 def hi_prefect_world(
+    self,
     job_id: str,
     result_storage_block: str | None,
+    result_storage_basepath: str | None,
     process_description: schemas.ProcessDescription,
     execution_request: schemas.ExecuteRequest,
 ) -> schemas.JobStatusInfoInternal:
@@ -38,12 +40,12 @@ def hi_prefect_world(
     logger = get_run_logger()
     logger.warning(f"Inside the hi_prefect_world flow - locals: {locals()}")
     try:
-        name = execution_request.inputs["name"].__root__
+        name = execution_request.inputs["name"].root
     except KeyError:
-        raise exceptions.MissingJobParameterError("Cannot process without a name")
+        raise JobError("Cannot process without a name")
     else:
         msg = execution_request.inputs.get("message")
-        message = msg.__root__ if msg is not None else ""
+        message = msg.root if msg is not None else ""
         result_value = generate_result.submit(name, message)
         stored_path_future = store_result.submit(
             result_value, job_id, result_storage_block

@@ -1,16 +1,17 @@
 """Example pygeoapi process"""
+from pathlib import Path
+
 from prefect import (
     flow,
     get_run_logger,
 )
-from prefect.blocks.core import Block
-from prefect.filesystems import LocalFileSystem
-from pygeoapi.process import exceptions
+from pygeoapi.process.base import JobError
 
 # don't perform relative imports because otherwise prefect deployment won't
 # work properly
 from pygeoapi_prefect import schemas
 from pygeoapi_prefect.process.base import BasePrefectProcessor
+from pygeoapi_prefect.utils import get_storage
 
 
 # When defining a prefect flow that will be deployed by prefect to some
@@ -21,11 +22,10 @@ from pygeoapi_prefect.process.base import BasePrefectProcessor
     log_prints=True,
 )
 def simple_flow(
+    self,
     job_id: str,
-    result_storage_block: str | None,
-    process_description: schemas.ProcessDescription,
     execution_request: schemas.ExecuteRequest,
-) -> schemas.JobStatusInfoInternal:
+) -> dict:
     """Echo back a greeting message.
 
     This is a simple prefect flow that does not use any tasks.
@@ -33,33 +33,34 @@ def simple_flow(
     logger = get_run_logger()
     logger.debug(f"Inside the hi_prefect_world flow - locals: {locals()}")
     try:
-        name = execution_request.inputs["name"].__root__
+        name = execution_request.inputs["name"].root
     except KeyError:
-        raise exceptions.MissingJobParameterError("Cannot process without a name")
+        raise JobError("Cannot process without a name")
     else:
-        msg = execution_request.inputs.get("message")
-        message = msg.__root__ if msg is not None else ""
-        if result_storage_block is not None:
-            file_system = Block.load(result_storage_block)
-        else:
-            file_system = LocalFileSystem()
-        print(f"file_system: {file_system}")
+        storage_type = self.outputs.get('type', 'LocalFileSystem')
+        basepath = self.outputs.get('basepath', f'{Path.home()}/.prefect/storage')
+        output_dir = get_storage(storage_type, basepath=basepath)
+        msg = execution_request.inputs.get('message')
+        message = msg.root if msg is not None else ''
         result_value = f"Hello {name}! {message}".strip()
-        result_path = f"{job_id}/output-result.txt"
-        file_system.write_path(result_path, result_value.encode("utf-8"))
-        return schemas.JobStatusInfoInternal(
-            jobID=job_id,
-            processID=process_description.id,
-            status=schemas.JobStatus.successful,
-            generated_outputs={
-                "result": schemas.OutputExecutionResultInternal(
-                    location=f"{file_system.basepath}/{result_path}",
-                    media_type=(
-                        process_description.outputs["result"].schema_.content_media_type
-                    ),
-                )
+        filename = f'simple-flow-result-{job_id}.txt'
+        output_dir.write_path(filename, result_value.encode('utf-8'))
+        return {
+            'providers': {
+                'my_provider': {
+                    'type': storage_type,
+                    'basepath': basepath
+                }
             },
-        )
+            'results': [
+                {
+                    'provider': 'my_provider',
+                    'mime_type': 'text/plain',
+                    'location': f'{output_dir.basepath}/{filename}',
+                    'filename': filename
+                }
+            ]
+        }
 
 
 class SimpleFlowProcessor(BasePrefectProcessor):

@@ -22,7 +22,6 @@ class PrefectDeployment:
 
 class BasePrefectProcessor(BaseProcessor, abc.ABC):
     deployment_info: PrefectDeployment | None
-    result_storage_block: str | None
 
     def __init__(self, processor_def: dict):
         super().__init__(processor_def, process_metadata=None)
@@ -35,8 +34,10 @@ class BasePrefectProcessor(BaseProcessor, abc.ABC):
             )
         else:
             self.deployment_info = None
-        if (sb := processor_def.get("prefect", {}).get("result_storage")) is not None:
-            self.result_storage_block = sb
+        if (outputs := processor_def.get("prefect", {}).get("outputs")) is not None:
+            self.outputs = outputs
+        else:
+            self.outputs = {}
 
     @property
     def metadata(self) -> Dict:
@@ -50,7 +51,7 @@ class BasePrefectProcessor(BaseProcessor, abc.ABC):
         """
 
         # do we even need this? - maybe the pygeoapi.openapi needs it?
-        return self.process_description.dict(exclude_none=True, by_alias=True)
+        return self.process_description.model_dump(exclude_none=True, by_alias=True)
 
     @metadata.setter
     def metadata(self, metadata: Dict):
