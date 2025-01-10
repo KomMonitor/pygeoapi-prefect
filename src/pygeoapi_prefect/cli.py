@@ -5,8 +5,10 @@ from prefect.blocks.core import Block
 from prefect.deployments import Deployment
 from prefect.filesystems import RemoteFileSystem
 from pygeoapi.process.manager import get_manager
-from pygeoapi.process import exceptions
 from pygeoapi.util import yaml_load
+from pygeoapi.process.base import (
+    UnknownProcessError
+)
 
 from .process.base import BasePrefectProcessor
 
@@ -74,7 +76,7 @@ def deploy_process(
     manager = get_manager(config)
     try:
         processor = manager.get_processor(process_id)
-    except exceptions.UnknownProcessError as err:
+    except UnknownProcessError as err:
         raise click.BadParameter(f"Process {process_id!r} not found") from err
     else:
         if isinstance(processor, BasePrefectProcessor):
