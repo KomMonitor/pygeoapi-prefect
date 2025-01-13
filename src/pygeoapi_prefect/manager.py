@@ -468,6 +468,7 @@ class PrefectManager(BaseManager):
             execution_request.properties["user"] = g.user
             execution_request.properties["roles"] = g.roles
             execution_request.properties["token"] = g.token
+            execution_request.properties["user_id"] = g.user_id
         except AttributeError as err:
             logger.warning(err)
 
