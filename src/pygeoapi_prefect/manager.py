@@ -77,7 +77,7 @@ class PrefectManager(BaseManager):
             if result_storage.startswith('file://'):
                 self.result_storage = LocalFileSystem(basepath=result_storage.removeprefix('file://'))
             else:
-                self.result_storage =  Block.load(result_storage)
+                self.result_storage = Block.load(result_storage)
             self.result_serializer = self.connection.get('result_serializer', 'json')
         else:
             self.result_storage = LocalFileSystem(basepath=f'{Path.home()}/.prefect/storage')
@@ -88,7 +88,7 @@ class PrefectManager(BaseManager):
             if self.output_dir.startswith('file://'):
                 self.output_dir = LocalFileSystem(basepath=self.output_dir.removeprefix('file://'))
             else:
-                self.output_dir =  Block.load(self.output_dir)
+                self.output_dir = Block.load(self.output_dir)
             logger.warning("The job manager's 'output_dir' is only used for outputs from plain pygeoapi processes "
                            "and ignored for prefect processes. For prefect processes, output must be handled by "
                            "the flow itself.")
@@ -188,11 +188,11 @@ class PrefectManager(BaseManager):
             'parameters': {
                 "negotiated_execution_mode": internal.negotiated_execution_mode.value
                 if internal.negotiated_execution_mode is not None else "undefined",
-                "generated_outputs": generated_outputs[0],
+                "generated_outputs": generated_outputs[0] if generated_outputs else None,
                 "requested_response_type": internal.requested_response_type.value
                 if internal.requested_response_type is not None else "undefined",
             },
-            "mimetype": mime_types[0],
+            "mimetype": mime_types[0] if mime_types else None,
             'job_start_datetime': internal.started,
             'job_end_datetime': internal.finished
         }
@@ -299,7 +299,6 @@ class PrefectManager(BaseManager):
           synchronously
         """
         run_params = {
-            "processor": processor,
             "job_id": job_id,
             "execution_request": execution_request.model_dump(
                 by_alias=True, exclude_none=True
@@ -349,7 +348,10 @@ class PrefectManager(BaseManager):
         # flow_result = flow_run.state.result(raise_on_failure=False)
         generated_outputs, mime_types = self._load_flow_outputs(flow_result)
         # multiple outputs via multipart/related are not supported yet
-        return mime_types[0], generated_outputs[0], JobStatus.successful
+        if mime_types:
+            return mime_types[0], generated_outputs[0], JobStatus.successful
+        else:
+            return "text/plain", "success", JobStatus.successful
 
     def _execute_base_processor(
             self,
@@ -465,9 +467,6 @@ class PrefectManager(BaseManager):
 
         # Add ownership information to the request
         try:
-            execution_request.properties["user"] = g.user
-            execution_request.properties["roles"] = g.roles
-            execution_request.properties["token"] = g.token
             execution_request.properties["user_id"] = g.user_id
         except AttributeError as err:
             logger.warning(err)
@@ -550,6 +549,8 @@ class PrefectManager(BaseManager):
             logger.warning(f"Could not get flow_run results: {err}")
 
         execution_request = ExecuteRequest.model_construct(**flow_run.parameters["execution_request"])
+        print(flow_run)
+        print(flow_result)
         return JobStatusInfoInternal(
             jobID=job_id,
             status=self.prefect_state_map[flow_run.state_type],
@@ -563,17 +564,19 @@ class PrefectManager(BaseManager):
             generated_outputs=flow_result,
         )
 
-    def _load_flow_outputs(self, flow_result: dict) -> tuple[list, list]:
+    def _load_flow_outputs(self, flow_result: dict) -> tuple[list, list] | tuple[None, None]:
         generated_outputs = []
         mime_types = []
-        for result in flow_result['results']:
+        results = flow_result.get('results', [])
+        print(flow_result)
+        for result in results:
             provider = result['provider']
             storage_type = flow_result['providers'][provider]['type']
             basepath = flow_result['providers'][provider]['basepath']
             output_dir = get_storage(storage_type, basepath=basepath)
             generated_outputs.append(output_dir.read_path(result['filename']))
             mime_types.append(result['mime_type'])
-        return generated_outputs, mime_types
+        return (generated_outputs, mime_types) if len(generated_outputs) > 0 else None, None
 
 
 async def _get_prefect_flow_runs(
