@@ -576,8 +576,10 @@ class PrefectManager(BaseManager):
             output_dir = get_storage(storage_type, basepath=basepath)
             generated_outputs.append(output_dir.read_path(result['filename']))
             mime_types.append(result['mime_type'])
-        return (generated_outputs, mime_types) if len(generated_outputs) > 0 else None, None
-
+        if len(generated_outputs) > 0:
+            return (generated_outputs, mime_types)
+        else:
+            return (None, None)
 
 async def _get_prefect_flow_runs(
         states: list[StateType] | None = None, name_like: str | None = None
