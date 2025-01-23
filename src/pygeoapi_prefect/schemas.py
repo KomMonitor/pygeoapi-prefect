@@ -142,11 +142,11 @@ class ProcessIOSchema(pydantic.BaseModel):
     )
     description: Optional[str] = None
     format_: Optional[ProcessIOFormat] = pydantic.Field(None, alias="format")
-    default: Optional[pydantic.Json[dict]] = None
+    default: Optional[dict] = None
     nullable: Optional[bool] = None
     read_only: Optional[bool] = pydantic.Field(None, alias="readOnly")
     write_only: Optional[bool] = pydantic.Field(None, alias="writeOnly")
-    example: Optional[pydantic.Json[dict]] = None
+    example: Optional[dict] = None
     deprecated: Optional[bool] = None
     content_media_type: Optional[str] = pydantic.Field(None, alias="contentMediaType")
     content_encoding: Optional[str] = pydantic.Field(None, alias="contentEncoding")
