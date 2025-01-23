@@ -154,12 +154,16 @@ class ProcessIOSchema(pydantic.BaseModel):
 
     class Config:
         use_enum_values = True
-
+        populate_by_name = True
 
 class ProcessOutput(pydantic.BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     schema_: ProcessIOSchema = pydantic.Field(alias="schema")
+
+    class Config:
+        use_enum_values = True
+        populate_by_name = True
 
 
 class ProcessMetadata(pydantic.BaseModel):
