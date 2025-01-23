@@ -113,17 +113,17 @@ class ProcessIOSchema(pydantic.BaseModel):
     title: Optional[str] = None
     multiple_of: Optional[float] = pydantic.Field(None, alias="multipleOf")
     maximum: Optional[float] = None
-    exclusive_maximum: Optional[bool] = pydantic.Field(False, alias="exclusiveMaximum")
+    exclusive_maximum: Optional[bool] = pydantic.Field(None, alias="exclusiveMaximum")
     minimum: Optional[float] = None
-    exclusive_minimum: Optional[bool] = pydantic.Field(False, alias="exclusiveMinimum")
+    exclusive_minimum: Optional[bool] = pydantic.Field(None, alias="exclusiveMinimum")
     max_length: int = pydantic.Field(None, ge=0, alias="maxLength")
-    min_length: int = pydantic.Field(0, ge=0, alias="minLength")
+    min_length: int = pydantic.Field(None, ge=0, alias="minLength")
     pattern: Optional[str] = None
     max_items: Optional[int] = pydantic.Field(None, ge=0, alias="maxItems")
-    min_items: Optional[int] = pydantic.Field(0, ge=0, alias="minItems")
-    unique_items: Optional[bool] = pydantic.Field(False, alias="uniqueItems")
+    min_items: Optional[int] = pydantic.Field(None, ge=0, alias="minItems")
+    unique_items: Optional[bool] = pydantic.Field(None, alias="uniqueItems")
     max_properties: Optional[int] = pydantic.Field(None, ge=0, alias="maxProperties")
-    min_properties: Optional[int] = pydantic.Field(0, ge=0, alias="minProperties")
+    min_properties: Optional[int] = pydantic.Field(None, ge=0, alias="minProperties")
     required: Optional[  # type: ignore [valid-type]
         pydantic.conset(str, min_length=1)
     ] = None
@@ -135,19 +135,19 @@ class ProcessIOSchema(pydantic.BaseModel):
     allOf: Optional[List["ProcessIOSchema"]] = None
     oneOf: Optional[List["ProcessIOSchema"]] = None
     anyOf: Optional[List["ProcessIOSchema"]] = None
-    items: Optional[List["ProcessIOSchema"]] = None
-    properties: Optional["ProcessIOSchema"] = None
+    items: Optional["ProcessIOSchema"] = None
+    properties: Optional[Dict[str, "ProcessIOSchema"]] = None
     additional_properties: Optional[Union[bool, "ProcessIOSchema"]] = pydantic.Field(
-        True, alias="additionalProperties"
+        None, alias="additionalProperties"
     )
     description: Optional[str] = None
     format_: Optional[ProcessIOFormat] = pydantic.Field(None, alias="format")
     default: Optional[pydantic.Json[dict]] = None
-    nullable: Optional[bool] = False
-    read_only: Optional[bool] = pydantic.Field(False, alias="readOnly")
-    write_only: Optional[bool] = pydantic.Field(False, alias="writeOnly")
+    nullable: Optional[bool] = None
+    read_only: Optional[bool] = pydantic.Field(None, alias="readOnly")
+    write_only: Optional[bool] = pydantic.Field(None, alias="writeOnly")
     example: Optional[pydantic.Json[dict]] = None
-    deprecated: Optional[bool] = False
+    deprecated: Optional[bool] = None
     content_media_type: Optional[str] = pydantic.Field(None, alias="contentMediaType")
     content_encoding: Optional[str] = pydantic.Field(None, alias="contentEncoding")
     content_schema: Optional[str] = pydantic.Field(None, alias="contentSchema")
