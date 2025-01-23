@@ -125,10 +125,10 @@ class ProcessIOSchema(pydantic.BaseModel):
     max_properties: Optional[int] = pydantic.Field(None, ge=0, alias="maxProperties")
     min_properties: Optional[int] = pydantic.Field(None, ge=0, alias="minProperties")
     required: Optional[  # type: ignore [valid-type]
-        pydantic.conset(str, min_length=1)
+        pydantic.conlist(str, min_length=1)
     ] = None
     enum: Optional[  # type: ignore [valid-type]
-        pydantic.conset(Any, min_length=1)
+        pydantic.conlist(Any, min_length=1)
     ] = None
     type_: Optional[ProcessIOType] = pydantic.Field(None, alias="type")
     not_: Optional["ProcessIOSchema"] = pydantic.Field(None, alias="not")
