@@ -208,6 +208,7 @@ class ProcessSummary(pydantic.BaseModel):
 
     class Config:
         use_enum_values = True
+        populate_by_name = True
 
 
 class ProcessDescription(ProcessSummary):
