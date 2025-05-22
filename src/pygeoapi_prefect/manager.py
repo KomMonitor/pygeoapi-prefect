@@ -3,6 +3,8 @@
 import json
 import logging
 import uuid
+import inspect
+import os
 from typing import (
     Any,
     Optional,
@@ -472,6 +474,138 @@ class PrefectManager(BaseManager):
             logger.warning(err)
 
         execution_result = self._execute(
+            process_id=process_id,
+            execution_request=execution_request,
+            requested_execution_mode=execution_mode,
+        )
+        (
+            job_id,
+            output_media_type,
+            generated_output,
+            status,
+            additional_headers
+        ) = execution_result
+        return (
+            job_id,
+            output_media_type,
+            generated_output,
+            status,
+            additional_headers,
+        )
+
+    def _schedule_prefect_processor(
+            self,
+            job_id: str,
+            processor: BasePrefectProcessor,
+            chosen_mode: ProcessExecutionMode,
+            execution_request: ExecuteRequest,
+    ) -> tuple[str, Any, JobStatus]:
+        run_params = {
+            "job_id": job_id,
+            "execution_request": execution_request.model_dump(
+                by_alias=True, exclude_none=True
+            )
+        }
+        if execution_request.inputs['execution_interval'] is None:
+            # TODO: raise error
+            None
+        cron_schedule = execution_request.inputs['execution_interval'].value['cron']
+        flow_run_name = self._job_id_to_flow_run_name(job_id)
+        flow_result = {}
+        if processor.deployment_info is None:  # will run locally and sync
+            flow_fn = processor.process_flow
+            flow_fn.flow_run_name = flow_run_name
+            flow_fn.persist_result = True
+            flow_fn.result_storage = self.result_storage
+            flow_fn.result_serializer = self.result_serializer
+
+            source_name = os.path.dirname((inspect.getfile(processor.__class__)))
+            module_name = os.path.basename(inspect.getfile(processor.__class__))
+            entrypoint = str.join(":", [module_name, "process_flow"])
+
+            flow_fn.from_source(
+                source=source_name,
+                entrypoint=entrypoint,
+            ).deploy(name=flow_run_name, cron=cron_schedule, work_pool_name="kommonitor-work-pool", parameters=run_params)
+        else:
+            # if there is a deployment, then we must rely on the flow function
+            # having been explicitly configured to:
+            # - persist results
+            # - log prints
+            #
+            # deployed flows cannot be modified in the same way as local ones
+            deployment_name = (
+                f"{processor.process_description.id}/{processor.deployment_info.name}"
+            )
+            run_kwargs = {
+                "name": deployment_name,
+                "parameters": run_params,
+                "flow_run_name": flow_run_name,
+            }
+            if chosen_mode == ProcessExecutionMode.sync_execute:
+                logger.info("synchronous execution with deployment")
+                flow_result = run_deployment(**run_kwargs)
+            else:
+                logger.info("asynchronous execution")
+                flow_result = run_deployment(
+                    **run_kwargs, timeout=0  # has the effect of returning immediately
+                )
+        # ToDo: check/fix async execution and deployments
+        # flow_run, prefect_flow = _get_prefect_flow_run(flow_run_name)
+        # flow_result = flow_run.state.result(raise_on_failure=False)
+        generated_outputs, mime_types = self._load_flow_outputs(flow_result)
+        # multiple outputs via multipart/related are not supported yet
+        if mime_types:
+            return mime_types[0], generated_outputs[0], JobStatus.successful
+        else:
+            return "text/plain", "success", JobStatus.successful
+
+    def _schedule(
+            self,
+            process_id: str,
+            execution_request: ExecuteRequest,
+            requested_execution_mode: RequestedProcessExecutionMode | None = None,
+    ) -> tuple[str, str, Any, JobStatus, dict[str, str]]:
+        """Process scheduling handler.
+
+        This manager is able to execute two types of processes:
+        """
+        processor = self.get_processor(process_id)
+        chosen_mode, additional_headers = self._select_execution_mode(
+            requested_execution_mode, processor
+        )
+        job_id = str(uuid.uuid4())
+        if isinstance(processor, BasePrefectProcessor):
+            output_media_type, generated_output, current_job_status = self._schedule_prefect_processor(
+                job_id, processor, chosen_mode, execution_request
+            )
+        else:
+            raise NotImplementedError
+        return (
+            job_id,
+            output_media_type,
+            generated_output,
+            current_job_status,
+            additional_headers
+        )
+
+    def schedule_process(
+            self,
+            process_id: str,
+            data_dict: dict,
+            execution_mode: Optional[RequestedProcessExecutionMode] = None
+    ) -> tuple[str, str, Any, JobStatus, Optional[dict[str, str]]]:
+        execution_request = ExecuteRequest(inputs=data_dict)
+        logger.warning(f"{data_dict=}")
+        logger.warning(f"{execution_request=}")
+
+        # Add ownership information to the request
+        try:
+            execution_request.properties["user_id"] = g.user_id
+        except AttributeError as err:
+            logger.warning(err)
+
+        execution_result = self._schedule(
             process_id=process_id,
             execution_request=execution_request,
             requested_execution_mode=execution_mode,
