@@ -138,7 +138,7 @@ class PrefectManager(BaseManager):
                 StateType.COMPLETED,
                 StateType.CRASHED,
                 StateType.CANCELLED,
-                StateType.CANCELLING,
+                StateType.CANCELLING
             ]
         try:
             flow_runs = anyio.run(
@@ -309,7 +309,7 @@ class PrefectManager(BaseManager):
         flow_run_name = self._job_id_to_flow_run_name(job_id)
         flow_result = {}
         if processor.deployment_info is None:  # will run locally and sync
-            flow_fn = processor.process_flow
+            flow_fn = processor.__class__.process_flow
             flow_fn.flow_run_name = flow_run_name
             flow_fn.persist_result = True
             flow_fn.result_storage = self.result_storage
