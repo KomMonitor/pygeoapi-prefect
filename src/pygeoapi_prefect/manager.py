@@ -30,7 +30,8 @@ from prefect.task_runners import ConcurrentTaskRunner
 from pygeoapi.process.base import (
     BaseProcessor,
     ProcessorExecuteError,
-    JobNotFoundError
+    JobNotFoundError,
+    JobError
 )
 from pygeoapi.process.manager.base import BaseManager
 from pygeoapi.util import JobStatus, RequestedResponse, Subscriber
@@ -59,6 +60,7 @@ class PrefectManager(BaseManager):
     job id.
     """
     _flow_run_name_prefix = "pygeoapi_job_"
+    _deploy_name_prefix = "pygeoapi_schedule_"
     prefect_state_map = {
         StateType.SCHEDULED: JobStatus.accepted,
         StateType.PENDING: JobStatus.accepted,
@@ -164,6 +166,14 @@ class PrefectManager(BaseManager):
             'jobs': jobs,
             'numberMatched': len(jobs)
         }
+
+    def _schedule_id_to_deploy_name(self, job_id: str) -> str:
+        """Convert input scheduling id onto corresponding prefect deploy name."""
+        return f"{self._deploy_name_prefix}{job_id}"
+
+    def _deploy_name_to_schedule_id(self, deploy_name: str) -> str:
+        """Convert input deployment name onto corresponding pygeoapi scheduling id."""
+        return deploy_name.replace(self._deploy_name_prefix, "")
 
     def _job_id_to_flow_run_name(self, job_id: str) -> str:
         """Convert input job_id onto corresponding prefect flow_run name."""
@@ -495,106 +505,71 @@ class PrefectManager(BaseManager):
 
     def _schedule_prefect_processor(
             self,
-            job_id: str,
+            schedule_id: str,
             processor: BasePrefectProcessor,
-            chosen_mode: ProcessExecutionMode,
             execution_request: ExecuteRequest,
-    ) -> tuple[str, Any, JobStatus]:
+    ) -> tuple[str, JobStatus]:
         run_params = {
-            "job_id": job_id,
+            "job_id": "",
             "execution_request": execution_request.model_dump(
                 by_alias=True, exclude_none=True
             )
         }
         if execution_request.inputs['execution_interval'] is None:
-            # TODO: raise error
-            None
+            raise AttributeError("Input 'execution_interval' not found.")
         cron_schedule = execution_request.inputs['execution_interval'].value['cron']
-        flow_run_name = self._job_id_to_flow_run_name(job_id)
-        flow_result = {}
-        if processor.deployment_info is None:  # will run locally and sync
-            flow_fn = processor.process_flow
-            flow_fn.flow_run_name = flow_run_name
-            flow_fn.persist_result = True
-            flow_fn.result_storage = self.result_storage
-            flow_fn.result_serializer = self.result_serializer
+        deploy_name = self._schedule_id_to_deploy_name(schedule_id)
 
-            source_name = os.path.dirname((inspect.getfile(processor.__class__)))
-            module_name = os.path.basename(inspect.getfile(processor.__class__))
-            entrypoint = str.join(":", [module_name, "process_flow"])
+        flow_fn = processor.process_flow
+        flow_fn.persist_result = True
+        flow_fn.result_storage = self.result_storage
+        flow_fn.result_serializer = self.result_serializer
 
-            flow_fn.from_source(
+        source_name = os.path.dirname((inspect.getfile(processor.__class__)))
+        module_name = os.path.basename(inspect.getfile(processor.__class__))
+        entrypoint = str.join(":", [module_name, "process_flow"])
+
+        try:
+            deploy_id = flow_fn.from_source(
                 source=source_name,
                 entrypoint=entrypoint,
-            ).deploy(name=flow_run_name, cron=cron_schedule, work_pool_name="kommonitor-work-pool", parameters=run_params)
-        else:
-            # if there is a deployment, then we must rely on the flow function
-            # having been explicitly configured to:
-            # - persist results
-            # - log prints
-            #
-            # deployed flows cannot be modified in the same way as local ones
-            deployment_name = (
-                f"{processor.process_description.id}/{processor.deployment_info.name}"
-            )
-            run_kwargs = {
-                "name": deployment_name,
-                "parameters": run_params,
-                "flow_run_name": flow_run_name,
-            }
-            if chosen_mode == ProcessExecutionMode.sync_execute:
-                logger.info("synchronous execution with deployment")
-                flow_result = run_deployment(**run_kwargs)
-            else:
-                logger.info("asynchronous execution")
-                flow_result = run_deployment(
-                    **run_kwargs, timeout=0  # has the effect of returning immediately
-                )
-        # ToDo: check/fix async execution and deployments
-        # flow_run, prefect_flow = _get_prefect_flow_run(flow_run_name)
-        # flow_result = flow_run.state.result(raise_on_failure=False)
-        generated_outputs, mime_types = self._load_flow_outputs(flow_result)
-        # multiple outputs via multipart/related are not supported yet
-        if mime_types:
-            return mime_types[0], generated_outputs[0], JobStatus.successful
-        else:
-            return "text/plain", "success", JobStatus.successful
+            ).deploy(name=deploy_name, cron=cron_schedule, work_pool_name="kommonitor-work-pool", parameters=run_params)
+            logger.debug(f'Successfully created deployment {deploy_id}')
+        except httpx.ConnectError as err:
+            logger.error(f"Could not connect to prefect server to create deployment: {str(err)}")
+            return "text/plain", JobStatus.failed
+
+        return "text/plain", JobStatus.successful
 
     def _schedule(
             self,
             process_id: str,
             execution_request: ExecuteRequest,
-            requested_execution_mode: RequestedProcessExecutionMode | None = None,
-    ) -> tuple[str, str, Any, JobStatus, dict[str, str]]:
+    ) -> tuple[str, str, JobStatus]:
         """Process scheduling handler.
 
         This manager is able to execute two types of processes:
         """
         processor = self.get_processor(process_id)
-        chosen_mode, additional_headers = self._select_execution_mode(
-            requested_execution_mode, processor
-        )
-        job_id = str(uuid.uuid4())
+
+        schedule_id = str(uuid.uuid4())
         if isinstance(processor, BasePrefectProcessor):
-            output_media_type, generated_output, current_job_status = self._schedule_prefect_processor(
-                job_id, processor, chosen_mode, execution_request
+            output_media_type, current_job_status = self._schedule_prefect_processor(
+                schedule_id, processor, execution_request
             )
         else:
             raise NotImplementedError
         return (
-            job_id,
+            schedule_id,
             output_media_type,
-            generated_output,
-            current_job_status,
-            additional_headers
+            current_job_status
         )
 
     def schedule_process(
             self,
             process_id: str,
-            data_dict: dict,
-            execution_mode: Optional[RequestedProcessExecutionMode] = None
-    ) -> tuple[str, str, Any, JobStatus, Optional[dict[str, str]]]:
+            data_dict: dict
+    ) -> tuple[str, str, JobStatus]:
         execution_request = ExecuteRequest(inputs=data_dict)
         logger.warning(f"{data_dict=}")
         logger.warning(f"{execution_request=}")
@@ -608,21 +583,16 @@ class PrefectManager(BaseManager):
         execution_result = self._schedule(
             process_id=process_id,
             execution_request=execution_request,
-            requested_execution_mode=execution_mode,
         )
         (
-            job_id,
+            schedule_id,
             output_media_type,
-            generated_output,
-            status,
-            additional_headers
+            status
         ) = execution_result
         return (
-            job_id,
+            schedule_id,
             output_media_type,
-            generated_output,
             status,
-            additional_headers,
         )
 
     def _execute(
@@ -708,8 +678,11 @@ class PrefectManager(BaseManager):
             storage_type = flow_result['providers'][provider]['type']
             basepath = flow_result['providers'][provider]['basepath']
             output_dir = get_storage(storage_type, basepath=basepath)
-            generated_outputs.append(output_dir.read_path(result['filename']))
-            mime_types.append(result['mime_type'])
+            try:
+                generated_outputs.append(output_dir.read_path(result['filename']))
+                mime_types.append(result['mime_type'])
+            except Exception as ex:
+                logger.error(f"Error while trying to read result file {result['filename']} from {basepath}")
         if len(generated_outputs) > 0:
             return (generated_outputs, mime_types)
         else:
