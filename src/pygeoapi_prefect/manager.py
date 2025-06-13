@@ -23,7 +23,7 @@ from prefect.deployments import run_deployment
 from prefect.exceptions import MissingResult, UnfinishedRun
 from prefect.filesystems import LocalFileSystem
 from prefect.server.schemas import filters
-from prefect.server.schemas.core import Flow,
+from prefect.server.schemas.core import Flow
 from prefect.server.schemas.states import StateType
 from prefect.task_runners import ConcurrentTaskRunner
 
@@ -286,7 +286,9 @@ class PrefectManager(BaseManager):
             'job_ids': internal.job_ids,
             'created': internal.created,
             'updated': internal.updated,
-            'status': internal.status
+            'status': internal.status,
+            'active': internal.active,
+            'cron': internal.cron
         }
 
     def get_schedule_internal(self, schedule_id: str) -> ScheduleStatusInfoInternal:
@@ -760,6 +762,8 @@ class PrefectManager(BaseManager):
             created=deployment.created,
             updated=deployment.updated,
             status=deployment.status,
+            active=deployment.schedules[0].active,
+            cron=deployment.schedules[0].schedule.cron,
         )
 
     def _load_flow_outputs(self, flow_result: dict) -> tuple[list, list] | tuple[None, None]:
@@ -827,11 +831,14 @@ async def _get_prefect_flow_run(flow_run_name: str) -> tuple[FlowRun, Flow] | No
 async def _get_prefect_flow_runs_for_deployment(deployment_name: str) -> list[FlowRun] | None:
     """Retrieve prefect flow_run details."""
     async with get_client() as client:
-        return await client.read_flow_runs(
+        flow_runs = await client.read_flow_runs(
             deployment_filter=filters.DeploymentFilter(
                 name=filters.DeploymentFilterName(any_=[deployment_name])
             )
         )
+        filtered_flow_runs = [f for f in flow_runs if f.state_type != StateType.SCHEDULED ]
+        return filtered_flow_runs
+
 
 
 async def _get_prefect_flow(flow_id: uuid.UUID) -> Flow:
@@ -876,5 +883,6 @@ async def _get_prefect_deployment(deployment_name: str) -> tuple[DeploymentRespo
                     name=filters.DeploymentFilterName(any_=[deployment_name])
                 )
             )
-            result = deployment, prefect_flow, flow_runs
+            filtered_flow_runs = [f for f in flow_runs if f.state_type != StateType.SCHEDULED ]
+            result = deployment, prefect_flow, filtered_flow_runs
         return result

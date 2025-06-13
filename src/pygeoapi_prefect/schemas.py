@@ -351,3 +351,10 @@ class ScheduleStatusInfoInternal(pydantic.BaseModel):
     created: Optional[dt.datetime] = None
     updated: Optional[dt.datetime] = None
     status: Optional[str] = None
+    active: Optional[bool] = pydantic.Field(None, alias="active")
+    cron: Optional[str] = pydantic.Field(None, alias="cron")
+
+
+    class Config:
+        use_enum_values = True
+        populate_by_name = True
