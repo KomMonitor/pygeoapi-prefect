@@ -23,7 +23,7 @@ from prefect.deployments import run_deployment
 from prefect.exceptions import MissingResult, UnfinishedRun
 from prefect.filesystems import LocalFileSystem
 from prefect.server.schemas import filters
-from prefect.server.schemas.core import Flow
+from prefect.server.schemas.core import Flow,
 from prefect.server.schemas.states import StateType
 from prefect.task_runners import ConcurrentTaskRunner
 
@@ -41,10 +41,13 @@ from pygeoapi_prefect.process.base import BasePrefectProcessor
 from pygeoapi_prefect.schemas import (
     ExecuteRequest,
     JobStatusInfoInternal,
+    ScheduleStatusInfoInternal,
     ProcessExecutionMode,
     OutputExecutionResultInternal,
     RequestedProcessExecutionMode,
 )
+
+from prefect.client.schemas.responses import DeploymentResponse
 
 logger = logging.getLogger(__name__)
 
@@ -167,6 +170,52 @@ class PrefectManager(BaseManager):
             'numberMatched': len(jobs)
         }
 
+    def get_schedules(
+            self,
+            type_: list[str] | None = None,
+            process_id: list[str] | None = None,
+            status: list[JobStatus] | None = None,
+            date_time: str | None = None,
+            min_duration_seconds: int | None = None,
+            max_duration_seconds: int | None = None,
+            limit: int | None = 10,
+            offset: int | None = 0,
+    ) -> list[JobStatusInfoInternal]:
+        """Get a list of schedules, optionally filtered by relevant parameters.
+        """
+        if status is not None:
+            prefect_states = []
+            for k, v in self.prefect_state_map.items():
+                if status == v:
+                    prefect_states.append(k)
+        else:
+            prefect_states = [
+                StateType.RUNNING,
+                StateType.COMPLETED,
+                StateType.CRASHED,
+                StateType.CANCELLED,
+                StateType.CANCELLING
+            ]
+        try:
+            deployments = anyio.run(
+                _get_prefect_deployments,self._deploy_name_prefix
+            )
+        except httpx.ConnectError as err:
+            logger.error(f"Could not connect to prefect server: {str(err)}")
+            flow_runs = []
+
+        schedules = []
+        for deployment in deployments:
+            flow = anyio.run(_get_prefect_flow, deployment.flow_id)
+            flow_runs = anyio.run(_get_prefect_flow_runs_for_deployment, deployment.name)
+
+            deployment_status = self._deployment_to_schedule_status(deployment, flow, flow_runs)
+            schedules.append(self._schedule_status_to_external(deployment_status))
+        return {
+            'schedules': schedules,
+            'numberMatched': len(schedules)
+        }
+
     def _schedule_id_to_deploy_name(self, job_id: str) -> str:
         """Convert input scheduling id onto corresponding prefect deploy name."""
         return f"{self._deploy_name_prefix}{job_id}"
@@ -228,6 +277,37 @@ class PrefectManager(BaseManager):
 
     def get_job(self, job_id: str) -> Dict:
         return self._job_status_to_external(self.get_job_internal(job_id))
+
+    def _schedule_status_to_external(self, internal: ScheduleStatusInfoInternal) -> Dict:
+        """Convert from ScheduleStatusInfoInternal to pygeoapi dict format"""
+        return {
+            'process_id': internal.process_id,
+            'schedule_id': internal.schedule_id,
+            'job_ids': internal.job_ids,
+            'created': internal.created,
+            'updated': internal.updated,
+            'status': internal.status
+        }
+
+    def get_schedule_internal(self, schedule_id: str) -> ScheduleStatusInfoInternal:
+        """Get job details."""
+        deploy_name = self._schedule_id_to_deploy_name(schedule_id)
+        try:
+            deploy_details = anyio.run(_get_prefect_deployment, deploy_name)
+        except httpx.ConnectError as err:
+            # TODO: would be more explicit to raise an exception,
+            #  but pygeoapi is not able to handle this yet
+            logger.error(f"Could not connect to prefect server: {str(err)}")
+            deploy_details = None
+
+        if deploy_details is None:
+            raise JobNotFoundError()
+        else:
+            deployment, prefect_flow, flow_runs = deploy_details
+            return self._deployment_to_schedule_status(deployment, prefect_flow, flow_runs)
+
+    def get_schedule(self, job_id: str) -> Dict:
+        return self._schedule_status_to_external(self.get_schedule_internal(job_id))
 
     def delete_job(  # type: ignore [empty-body]
             self, job_id: str
@@ -668,6 +748,20 @@ class PrefectManager(BaseManager):
             generated_outputs=flow_result,
         )
 
+    def _deployment_to_schedule_status(
+            self, deployment: DeploymentResponse, prefect_flow: Flow, flow_runs: list[FlowRun],
+    ) -> ScheduleStatusInfoInternal:
+        schedule_id = self._deploy_name_to_schedule_id(deployment.name)
+        job_ids = [self._flow_run_name_to_job_id(f.name) for f in flow_runs]
+        return ScheduleStatusInfoInternal(
+            process_id=prefect_flow.name,
+            schedule_id=schedule_id,
+            job_ids=job_ids,
+            created=deployment.created,
+            updated=deployment.updated,
+            status=deployment.status,
+        )
+
     def _load_flow_outputs(self, flow_result: dict) -> tuple[list, list] | tuple[None, None]:
         generated_outputs = []
         mime_types = []
@@ -730,7 +824,57 @@ async def _get_prefect_flow_run(flow_run_name: str) -> tuple[FlowRun, Flow] | No
         return result
 
 
+async def _get_prefect_flow_runs_for_deployment(deployment_name: str) -> list[FlowRun] | None:
+    """Retrieve prefect flow_run details."""
+    async with get_client() as client:
+        return await client.read_flow_runs(
+            deployment_filter=filters.DeploymentFilter(
+                name=filters.DeploymentFilterName(any_=[deployment_name])
+            )
+        )
+
+
 async def _get_prefect_flow(flow_id: uuid.UUID) -> Flow:
     """Retrive prefect flow details."""
     async with get_client() as client:
         return await client.read_flow(flow_id)
+
+
+async def _get_prefect_deployments(
+        name_like: str | None = None
+) -> list[DeploymentResponse]:
+    """Retrieve existing prefect deployments, optionally filtered by name"""
+    if name_like is not None:
+        name_like_filter = filters.DeploymentFilterName(like_=name_like)
+    else:
+        name_like_filter = None
+    async with get_client() as client:
+        response = await client.read_deployments(
+            deployment_filter=filters.DeploymentFilter(
+                name=name_like_filter,
+            )
+        )
+    return response
+
+
+async def _get_prefect_deployment(deployment_name: str) -> tuple[DeploymentResponse, Flow, list[FlowRun]] | None:
+    """Retrieve prefect deployment details."""
+    async with get_client() as client:
+        deployments = await client.read_deployments(
+            deployment_filter=filters.DeploymentFilter(
+                name=filters.DeploymentFilterName(any_=[deployment_name])
+            )
+        )
+        try:
+            deployment = deployments[0]
+        except IndexError:
+            result = None
+        else:
+            prefect_flow = await client.read_flow(deployment.flow_id)
+            flow_runs = await client.read_flow_runs(
+                deployment_filter=filters.DeploymentFilter(
+                    name=filters.DeploymentFilterName(any_=[deployment_name])
+                )
+            )
+            result = deployment, prefect_flow, flow_runs
+        return result

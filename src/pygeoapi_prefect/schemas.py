@@ -342,3 +342,12 @@ class JobStatusInfoInternal(JobStatusInfoBase):
     requested_response_type: Optional[ProcessResponseType] = None
     requested_outputs: Optional[Dict[str, ExecutionOutput]] = None
     generated_outputs: Optional[Dict[str, Any]] = None
+
+
+class ScheduleStatusInfoInternal(pydantic.BaseModel):
+    process_id: Optional[str] = pydantic.Field(None, alias="processID")
+    schedule_id: Optional[str] = pydantic.Field(None, alias="scheduleID")
+    job_ids: Optional[List[str]] = pydantic.Field(None, alias="jobIDs")
+    created: Optional[dt.datetime] = None
+    updated: Optional[dt.datetime] = None
+    status: Optional[str] = None
