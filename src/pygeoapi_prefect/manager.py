@@ -273,7 +273,7 @@ class PrefectManager(BaseManager):
             raise JobNotFoundError()
         else:
             flow_run, prefect_flow = flow_run_details
-            return self._flow_run_to_job_status(flow_run, prefect_flow)
+            return self._flow_run_to_job_status(flow_run, prefect_flow, include_output=False)
 
     def get_job(self, job_id: str) -> Dict:
         return self._job_status_to_external(self.get_job_internal(job_id))
