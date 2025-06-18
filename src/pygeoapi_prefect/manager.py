@@ -731,7 +731,7 @@ class PrefectManager(BaseManager):
         flow_result = None
         try:
             flow_result = flow_run.state.result(raise_on_failure=False)
-        except (MissingResult, UnfinishedRun) as err:
+        except (MissingResult, UnfinishedRun, ValueError) as err:
             logger.warning(f"Could not get flow_run results: {err}")
 
         execution_request = ExecuteRequest.model_construct(**flow_run.parameters["execution_request"])
