@@ -162,7 +162,7 @@ class PrefectManager(BaseManager):
                 flow = anyio.run(_get_prefect_flow, flow_run.flow_id)
                 seen_flows[flow_run.flow_id] = flow
             job_status = self._flow_run_to_job_status(
-                flow_run, seen_flows[flow_run.flow_id]
+                flow_run, seen_flows[flow_run.flow_id], include_output=False
             )
             jobs.append(self._job_status_to_external(job_status))
         return {
@@ -725,18 +725,16 @@ class PrefectManager(BaseManager):
         return mime_types[0], generated_outputs[0]
 
     def _flow_run_to_job_status(
-            self, flow_run: FlowRun, prefect_flow: Flow
+            self, flow_run: FlowRun, prefect_flow: Flow, include_output=True
     ) -> JobStatusInfoInternal:
         job_id = self._flow_run_name_to_job_id(flow_run.name)
         flow_result = None
-        try:
-            flow_result = flow_run.state.result(raise_on_failure=False)
-        except (MissingResult, UnfinishedRun, ValueError) as err:
-            logger.warning(f"Could not get flow_run results: {err}")
-
+        if include_output:
+            try:
+                flow_result = flow_run.state.result(raise_on_failure=False)
+            except (MissingResult, UnfinishedRun, ValueError) as err:
+                logger.warning(f"Could not get flow_run results: {err}")
         execution_request = ExecuteRequest.model_construct(**flow_run.parameters["execution_request"])
-        print(flow_run)
-        print(flow_result)
         return JobStatusInfoInternal(
             jobID=job_id,
             status=self.prefect_state_map[flow_run.state_type],
