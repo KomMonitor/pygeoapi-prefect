@@ -258,7 +258,7 @@ class PrefectManager(BaseManager):
             'job_end_datetime': internal.finished
         }
 
-    def get_job_internal(self, job_id: str) -> JobStatusInfoInternal:
+    def get_job_internal(self, job_id: str, include_output=False) -> JobStatusInfoInternal:
         """Get job details."""
         flow_run_name = self._job_id_to_flow_run_name(job_id)
         try:
@@ -273,7 +273,7 @@ class PrefectManager(BaseManager):
             raise JobNotFoundError()
         else:
             flow_run, prefect_flow = flow_run_details
-            return self._flow_run_to_job_status(flow_run, prefect_flow, include_output=False)
+            return self._flow_run_to_job_status(flow_run, prefect_flow, include_output=include_output)
 
     def get_job(self, job_id: str) -> Dict:
         return self._job_status_to_external(self.get_job_internal(job_id))
@@ -719,7 +719,7 @@ class PrefectManager(BaseManager):
         )
 
     def get_job_result(self, job_id: str) -> Tuple[str, Any]:
-        job = self.get_job_internal(job_id)
+        job = self.get_job_internal(job_id, include_output=True)
         # multiple outputs via multipart/related are not supported yet
         generated_outputs, mime_types = self._load_flow_outputs(job.generated_outputs)
         return mime_types[0], generated_outputs[0]
