@@ -20,6 +20,14 @@ class PrefectDeployment:
     storage_sub_path: str | None = None
 
 
+class ScheduleError(Exception):
+    pass
+
+
+class ScheduleNotFoundError(ScheduleError):
+    pass
+
+
 class BasePrefectProcessor(BaseProcessor, abc.ABC):
     deployment_info: PrefectDeployment | None
 

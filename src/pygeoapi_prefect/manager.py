@@ -20,7 +20,7 @@ from prefect.client.orchestration import get_client
 from prefect.client.schemas import FlowRun
 from prefect.blocks.core import Block
 from prefect.deployments import run_deployment
-from prefect.exceptions import MissingResult, UnfinishedRun
+from prefect.exceptions import MissingResult, UnfinishedRun, ObjectNotFound
 from prefect.filesystems import LocalFileSystem
 from prefect.server.schemas import filters
 from prefect.server.schemas.core import Flow
@@ -37,7 +37,7 @@ from pygeoapi.process.manager.base import BaseManager
 from pygeoapi.util import JobStatus, RequestedResponse, Subscriber
 
 from pygeoapi_prefect.utils import get_storage
-from pygeoapi_prefect.process.base import BasePrefectProcessor
+from pygeoapi_prefect.process.base import BasePrefectProcessor, ScheduleNotFoundError
 from pygeoapi_prefect.schemas import (
     ExecuteRequest,
     JobStatusInfoInternal,
@@ -303,13 +303,34 @@ class PrefectManager(BaseManager):
             deploy_details = None
 
         if deploy_details is None:
-            raise JobNotFoundError()
+            raise ScheduleNotFoundError()
         else:
             deployment, prefect_flow, flow_runs = deploy_details
             return self._deployment_to_schedule_status(deployment, prefect_flow, flow_runs)
 
     def get_schedule(self, job_id: str) -> Dict:
         return self._schedule_status_to_external(self.get_schedule_internal(job_id))
+
+    def delete_schedule(  # type: ignore [empty-body]
+            self, schedule_id: str
+    ) -> bool:
+        """Delete a schedule."""
+        deploy_name = self._schedule_id_to_deploy_name(schedule_id)
+
+        try:
+            deployment = anyio.run(_delete_prefect_deployment, deploy_name)
+        except ObjectNotFound as err:
+            raise ScheduleNotFoundError()
+        except httpx.ConnectError as err:
+            # TODO: would be more explicit to raise an exception,
+            #  but pygeoapi is not able to handle this yet
+            logger.error(f"Could not connect to prefect server: {str(err)}")
+            return False
+        else:
+            if deployment is None:
+                raise ScheduleNotFoundError()
+            else:
+                return True
 
     def delete_job(  # type: ignore [empty-body]
             self, job_id: str
@@ -883,4 +904,22 @@ async def _get_prefect_deployment(deployment_name: str) -> tuple[DeploymentRespo
             )
             filtered_flow_runs = [f for f in flow_runs if f.state_type != StateType.SCHEDULED ]
             result = deployment, prefect_flow, filtered_flow_runs
+        return result
+
+
+async def _delete_prefect_deployment(deployment_name: str) -> DeploymentResponse | None:
+    """Delete prefect deployment details."""
+    async with get_client() as client:
+        deployments = await client.read_deployments(
+            deployment_filter=filters.DeploymentFilter(
+                name=filters.DeploymentFilterName(any_=[deployment_name])
+            )
+        )
+        try:
+            deployment = deployments[0]
+        except IndexError:
+            result = None
+        else:
+            await client.delete_deployment(deployment.id)
+            result = deployment
         return result
