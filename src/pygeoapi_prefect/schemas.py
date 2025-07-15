@@ -353,6 +353,7 @@ class ScheduleStatusInfoInternal(pydantic.BaseModel):
     status: Optional[str] = None
     active: Optional[bool] = pydantic.Field(None, alias="active")
     cron: Optional[str] = pydantic.Field(None, alias="cron")
+    inputs: Optional[Dict[str, Any]] = None
 
 
     class Config:

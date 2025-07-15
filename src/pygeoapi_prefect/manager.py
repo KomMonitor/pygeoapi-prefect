@@ -288,7 +288,8 @@ class PrefectManager(BaseManager):
             'updated': internal.updated,
             'status': internal.status,
             'active': internal.active,
-            'cron': internal.cron
+            'cron': internal.cron,
+            'inputs': internal.inputs
         }
 
     def get_schedule_internal(self, schedule_id: str) -> ScheduleStatusInfoInternal:
@@ -774,6 +775,10 @@ class PrefectManager(BaseManager):
     ) -> ScheduleStatusInfoInternal:
         schedule_id = self._deploy_name_to_schedule_id(deployment.name)
         job_ids = [self._flow_run_name_to_job_id(f.name) for f in flow_runs]
+        try:
+            schedule_inputs = deployment.parameters['execution_request']['inputs']
+        except KeyError:
+            schedule_inputs = ''
         return ScheduleStatusInfoInternal(
             process_id=prefect_flow.name,
             schedule_id=schedule_id,
@@ -783,6 +788,7 @@ class PrefectManager(BaseManager):
             status=deployment.status,
             active=deployment.schedules[0].active,
             cron=deployment.schedules[0].schedule.cron,
+            inputs=schedule_inputs
         )
 
     def _load_flow_outputs(self, flow_result: dict) -> tuple[list, list] | tuple[None, None]:
