@@ -124,8 +124,8 @@ class PrefectManager(BaseManager):
             date_time: str | None = None,
             min_duration_seconds: int | None = None,
             max_duration_seconds: int | None = None,
-            limit: int | None = 10,
-            offset: int | None = 0,
+            limit: int | None = None,
+            offset: int | None = None,
     ) -> list[JobStatusInfoInternal]:
         """Get a list of jobs, optionally filtered by relevant parameters.
 
