@@ -51,6 +51,8 @@ from prefect.client.schemas.responses import DeploymentResponse
 
 logger = logging.getLogger(__name__)
 
+PAGINATION_ENABLED = os.getenv('PREFECT_PAGINATION_ENABLED', False)
+
 
 class PrefectManager(BaseManager):
     """Prefect-powered pygeoapi manager.
@@ -157,10 +159,11 @@ class PrefectManager(BaseManager):
             flow_runs = []
 
         number_matched = len(flow_runs)
-        if offset:
-            flow_runs = flow_runs[offset:]
-        if limit:
-            flow_runs = flow_runs[:limit]
+        if PAGINATION_ENABLED:
+            if offset:
+                flow_runs = flow_runs[offset:]
+            if limit:
+                flow_runs = flow_runs[:limit]
         seen_flows = {}
         jobs = []
 
