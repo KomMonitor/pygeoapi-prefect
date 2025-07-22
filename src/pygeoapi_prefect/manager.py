@@ -143,7 +143,8 @@ class PrefectManager(BaseManager):
                 StateType.COMPLETED,
                 StateType.CRASHED,
                 StateType.CANCELLED,
-                StateType.CANCELLING
+                StateType.CANCELLING,
+                StateType.FAILED
             ]
         try:
             flow_runs = anyio.run(
@@ -155,8 +156,14 @@ class PrefectManager(BaseManager):
             logger.error(f"Could not connect to prefect server: {str(err)}")
             flow_runs = []
 
+        number_matched = len(flow_runs)
+        if offset:
+            flow_runs = flow_runs[offset:]
+        if limit:
+            flow_runs = flow_runs[:limit]
         seen_flows = {}
         jobs = []
+
         for flow_run in flow_runs:
             if flow_run.flow_id not in seen_flows:
                 flow = anyio.run(_get_prefect_flow, flow_run.flow_id)
@@ -165,9 +172,10 @@ class PrefectManager(BaseManager):
                 flow_run, seen_flows[flow_run.flow_id], include_output=False
             )
             jobs.append(self._job_status_to_external(job_status))
+
         return {
             'jobs': jobs,
-            'numberMatched': len(jobs)
+            'numberMatched': number_matched
         }
 
     def get_schedules(
