@@ -352,6 +352,9 @@ class PrefectManager(BaseManager):
 
         try:
             flow_run = anyio.run(_trigger_prefect_flow_run_for_deployment, deploy_name)
+            print("FLOW RUN INFO")
+            print(flow_run)
+            logger.info(flow_run)
             job_id = self._flow_run_name_to_job_id(flow_run.name)            
         except ObjectNotFound as err:
             raise ScheduleNotFoundError()
