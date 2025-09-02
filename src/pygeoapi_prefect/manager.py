@@ -343,6 +343,27 @@ class PrefectManager(BaseManager):
                 raise ScheduleNotFoundError()
             else:
                 return True
+            
+    def trigger_flow_from_schedule(  # type: ignore [empty-body]
+            self, schedule_id: str
+    ) -> bool:
+        """Trigger a flow run for schedule."""
+        deploy_name = self._schedule_id_to_deploy_name(schedule_id)
+
+        try:
+            flow_run_id = anyio.run(_trigger_prefect_flow_run_for_deployment, deploy_name)
+        except ObjectNotFound as err:
+            raise ScheduleNotFoundError()
+        except httpx.ConnectError as err:
+            # TODO: would be more explicit to raise an exception,
+            #  but pygeoapi is not able to handle this yet
+            logger.error(f"Could not connect to prefect server: {str(err)}")
+            return False
+        else:
+            if flow_run_id is None:
+                raise ScheduleNotFoundError()
+            else:
+                return True
 
     def delete_job(  # type: ignore [empty-body]
             self, job_id: str
@@ -939,4 +960,21 @@ async def _delete_prefect_deployment(deployment_name: str) -> DeploymentResponse
         else:
             await client.delete_deployment(deployment.id)
             result = deployment
+        return result
+    
+async def _trigger_prefect_flow_run_for_deployment(deployment_name: str) -> DeploymentResponse | None:
+    """Trigger prefect deployment flow run."""
+    async with get_client() as client:
+        deployments = await client.read_deployments(
+            deployment_filter=filters.DeploymentFilter(
+                name=filters.DeploymentFilterName(any_=[deployment_name])
+            )
+        )
+        try:
+            deployment = deployments[0]
+        except IndexError:
+            result = None
+        else:
+            response = await client.create_flow_run_from_deployment(deployment.id)
+            result = response.data.create_flow_run_by_pk.id
         return result
