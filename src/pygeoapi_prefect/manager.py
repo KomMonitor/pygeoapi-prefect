@@ -866,7 +866,8 @@ async def _get_prefect_flow_runs(
             flow_run_filter=filters.FlowRunFilter(
                 state=state_filter,
                 name=name_like_filter,
-            )
+            ),
+            order_by={"start_time": "desc"}
         )
     return response
 
@@ -877,7 +878,8 @@ async def _get_prefect_flow_run(flow_run_name: str) -> tuple[FlowRun, Flow] | No
         flow_runs = await client.read_flow_runs(
             flow_run_filter=filters.FlowRunFilter(
                 name=filters.FlowRunFilterName(any_=[flow_run_name])
-            )
+            ),
+            order_by={"start_time": "desc"}
         )
         try:
             flow_run = flow_runs[0]
@@ -895,7 +897,8 @@ async def _get_prefect_flow_runs_for_deployment(deployment_name: str) -> list[Fl
         flow_runs = await client.read_flow_runs(
             deployment_filter=filters.DeploymentFilter(
                 name=filters.DeploymentFilterName(any_=[deployment_name])
-            )
+            ),
+            order_by={"start_time": "desc"}
         )
         filtered_flow_runs = [f for f in flow_runs if f.state_type != StateType.SCHEDULED ]
         return filtered_flow_runs
@@ -942,7 +945,8 @@ async def _get_prefect_deployment(deployment_name: str) -> tuple[DeploymentRespo
             flow_runs = await client.read_flow_runs(
                 deployment_filter=filters.DeploymentFilter(
                     name=filters.DeploymentFilterName(any_=[deployment_name])
-                )
+                ),
+                order_by={"start_time": "desc"}
             )
             filtered_flow_runs = [f for f in flow_runs if f.state_type != StateType.SCHEDULED ]
             result = deployment, prefect_flow, filtered_flow_runs
