@@ -23,6 +23,7 @@ from prefect.deployments import run_deployment
 from prefect.exceptions import MissingResult, UnfinishedRun, ObjectNotFound
 from prefect.filesystems import LocalFileSystem
 from prefect.server.schemas import filters
+from prefect.server.schemas import sorting
 from prefect.server.schemas.core import Flow
 from prefect.server.schemas.states import StateType
 from prefect.task_runners import ConcurrentTaskRunner
@@ -867,7 +868,7 @@ async def _get_prefect_flow_runs(
                 state=state_filter,
                 name=name_like_filter,
             ),
-            order_by={"start_time": "desc"}
+            sort=sorting.FlowRunSort.START_TIME_DESC
         )
     return response
 
@@ -879,7 +880,7 @@ async def _get_prefect_flow_run(flow_run_name: str) -> tuple[FlowRun, Flow] | No
             flow_run_filter=filters.FlowRunFilter(
                 name=filters.FlowRunFilterName(any_=[flow_run_name])
             ),
-            order_by={"start_time": "desc"}
+            sort=sorting.FlowRunSort.START_TIME_DESC
         )
         try:
             flow_run = flow_runs[0]
@@ -898,7 +899,7 @@ async def _get_prefect_flow_runs_for_deployment(deployment_name: str) -> list[Fl
             deployment_filter=filters.DeploymentFilter(
                 name=filters.DeploymentFilterName(any_=[deployment_name])
             ),
-            order_by={"start_time": "desc"}
+            sort=sorting.FlowRunSort.START_TIME_DESC
         )
         filtered_flow_runs = [f for f in flow_runs if f.state_type != StateType.SCHEDULED ]
         return filtered_flow_runs
@@ -946,7 +947,7 @@ async def _get_prefect_deployment(deployment_name: str) -> tuple[DeploymentRespo
                 deployment_filter=filters.DeploymentFilter(
                     name=filters.DeploymentFilterName(any_=[deployment_name])
                 ),
-                order_by={"start_time": "desc"}
+                sort=sorting.FlowRunSort.START_TIME_DESC
             )
             filtered_flow_runs = [f for f in flow_runs if f.state_type != StateType.SCHEDULED ]
             result = deployment, prefect_flow, filtered_flow_runs
