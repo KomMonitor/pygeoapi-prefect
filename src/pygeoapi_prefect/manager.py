@@ -5,6 +5,7 @@ import logging
 import uuid
 import inspect
 import os
+import shutil
 from typing import (
     Any,
     Optional,
@@ -31,6 +32,7 @@ from prefect.task_runners import ConcurrentTaskRunner
 from pygeoapi.process.base import (
     BaseProcessor,
     ProcessorExecuteError,
+    JobResultNotFoundError,
     JobNotFoundError,
     JobError
 )
@@ -372,9 +374,32 @@ class PrefectManager(BaseManager):
 
     def delete_job(  # type: ignore [empty-body]
             self, job_id: str
-    ) -> JobStatusInfoInternal:
-        """Delete a job and associated results/ouptuts."""
-        pass
+    ) -> bool:
+        """Delete a flow run."""
+        flow_run_name = self._job_id_to_flow_run_name(job_id)
+
+        try:
+            job = self.get_job_internal(job_id, include_output=True)
+            success = self._delete_flow_outputs(job.generated_outputs)
+            if not success:
+                return False
+        except JobNotFoundError as err:
+            logger.warn(f"No job results found for Job: {job_id}")
+
+        try:
+            flow = anyio.run(_delete_prefect_flow_run, flow_run_name)
+        except ObjectNotFound as err:
+            raise JobNotFoundError()
+        except httpx.ConnectError as err:
+            # TODO: would be more explicit to raise an exception,
+            #  but pygeoapi is not able to handle this yet
+            logger.error(f"Could not connect to prefect server: {str(err)}")
+            return False
+        else:
+            if flow is None:
+                raise JobNotFoundError()
+            else:
+                return True
 
     def _select_execution_mode(
             self,
@@ -778,10 +803,14 @@ class PrefectManager(BaseManager):
         )
 
     def get_job_result(self, job_id: str) -> Tuple[str, Any]:
-        job = self.get_job_internal(job_id, include_output=True)
-        # multiple outputs via multipart/related are not supported yet
-        generated_outputs, mime_types = self._load_flow_outputs(job.generated_outputs)
-        return mime_types[0], generated_outputs[0]
+        try:
+            job = self.get_job_internal(job_id, include_output=True)
+            # multiple outputs via multipart/related are not supported yet
+            generated_outputs, mime_types = self._load_flow_outputs(job.generated_outputs)
+            return mime_types[0], generated_outputs[0]
+        except JobNotFoundError as err:
+            log.error(f"Could not find job: {job_id}")
+            raise JobResultNotFoundError()
 
     def _flow_run_to_job_status(
             self, flow_run: FlowRun, prefect_flow: Flow, include_output=True
@@ -843,10 +872,29 @@ class PrefectManager(BaseManager):
                 mime_types.append(result['mime_type'])
             except Exception as ex:
                 logger.error(f"Error while trying to read result file {result['filename']} from {basepath}")
+                logger.debug(ex)
         if len(generated_outputs) > 0:
             return (generated_outputs, mime_types)
         else:
             return (None, None)
+
+    def _delete_flow_outputs(self, flow_result: dict) -> bool:
+        results = flow_result.get('results', [])
+        success = True
+        for result in results:
+            provider = result['provider']
+            storage_type = flow_result['providers'][provider]['type']
+            basepath = flow_result['providers'][provider]['basepath']
+            output_dir = get_storage(storage_type, basepath=basepath)
+            try:
+                job_result_dir = output_dir.basepath
+                shutil.rmtree(job_result_dir)
+                logger.info(f"Successfully deleted job results from {basepath}")
+            except Exception as ex:
+                logger.error(f"Error while trying to delete job results from {basepath}")
+                logger.error(ex)
+                success = False
+        return success
 
 async def _get_prefect_flow_runs(
         states: list[StateType] | None = None, name_like: str | None = None
@@ -970,6 +1018,26 @@ async def _delete_prefect_deployment(deployment_name: str) -> DeploymentResponse
             await client.delete_deployment(deployment.id)
             result = deployment
         return result
+
+
+async def _delete_prefect_flow_run(flow_run_name: str) -> DeploymentResponse | None:
+    """Delete prefect flow_run."""
+    async with get_client() as client:
+        flow_runs = await client.read_flow_runs(
+            flow_run_filter=filters.FlowRunFilter(
+                name=filters.FlowRunFilterName(any_=[flow_run_name])
+            ),
+            sort=sorting.FlowRunSort.START_TIME_DESC
+        )
+        try:
+            flow_run = flow_runs[0]
+        except IndexError:
+            result = None
+        else:
+            await client.delete_flow_run(flow_run.id)
+            result = flow_run
+        return result
+
     
 async def _trigger_prefect_flow_run_for_deployment(deployment_name: str) -> DeploymentResponse | None:
     """Trigger prefect deployment flow run."""
