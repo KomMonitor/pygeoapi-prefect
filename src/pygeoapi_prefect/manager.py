@@ -55,6 +55,19 @@ from prefect.client.schemas.responses import DeploymentResponse
 logger = logging.getLogger(__name__)
 
 PAGINATION_ENABLED = os.getenv('PREFECT_PAGINATION_ENABLED', False)
+FLOW_RUN_NAME_PREFIX = "pygeoapi_job_"
+DEPLOY_NAME_PREFIX = "pygeoapi_schedule_"
+STATE_MAP = {
+    StateType.SCHEDULED: JobStatus.accepted,
+    StateType.PENDING: JobStatus.accepted,
+    StateType.RUNNING: JobStatus.running,
+    StateType.COMPLETED: JobStatus.successful,
+    StateType.FAILED: JobStatus.failed,
+    StateType.CANCELLED: JobStatus.dismissed,
+    StateType.CRASHED: JobStatus.failed,
+    StateType.PAUSED: JobStatus.accepted,
+    StateType.CANCELLING: JobStatus.dismissed,
+}
 
 
 class PrefectManager(BaseManager):
@@ -67,19 +80,9 @@ class PrefectManager(BaseManager):
     setting a flow run's `name` and use that as the equivalent to the pygeoapi
     job id.
     """
-    _flow_run_name_prefix = "pygeoapi_job_"
-    _deploy_name_prefix = "pygeoapi_schedule_"
-    prefect_state_map = {
-        StateType.SCHEDULED: JobStatus.accepted,
-        StateType.PENDING: JobStatus.accepted,
-        StateType.RUNNING: JobStatus.running,
-        StateType.COMPLETED: JobStatus.successful,
-        StateType.FAILED: JobStatus.failed,
-        StateType.CANCELLED: JobStatus.dismissed,
-        StateType.CRASHED: JobStatus.failed,
-        StateType.PAUSED: JobStatus.accepted,
-        StateType.CANCELLING: JobStatus.dismissed,
-    }
+    _flow_run_name_prefix = FLOW_RUN_NAME_PREFIX
+    _deploy_name_prefix = DEPLOY_NAME_PREFIX
+    prefect_state_map = STATE_MAP
 
     def __init__(self, manager_def: dict):
         super().__init__(manager_def)
@@ -139,9 +142,10 @@ class PrefectManager(BaseManager):
         """
         if status is not None:
             prefect_states = []
-            for k, v in self.prefect_state_map.items():
-                if status == v:
-                    prefect_states.append(k)
+            for s in status:
+                for k, v in STATE_MAP.items():
+                    if s == v:
+                        prefect_states.append(k)
         else:
             prefect_states = [
                 StateType.RUNNING,
@@ -380,7 +384,7 @@ class PrefectManager(BaseManager):
 
         try:
             job = self.get_job_internal(job_id, include_output=True)
-            success = self._delete_flow_outputs(job.generated_outputs)
+            success = delete_flow_outputs(job.generated_outputs)
             if not success:
                 return False
         except JobNotFoundError as err:
@@ -878,23 +882,59 @@ class PrefectManager(BaseManager):
         else:
             return (None, None)
 
-    def _delete_flow_outputs(self, flow_result: dict) -> bool:
-        results = flow_result.get('results', [])
-        success = True
-        for result in results:
-            provider = result['provider']
-            storage_type = flow_result['providers'][provider]['type']
-            basepath = flow_result['providers'][provider]['basepath']
-            output_dir = get_storage(storage_type, basepath=basepath)
-            try:
-                job_result_dir = output_dir.basepath
+def delete_flow_outputs(flow_result: dict) -> bool:
+    results = flow_result.get('results', [])
+    success = True
+    for result in results:
+        provider = result['provider']
+        storage_type = flow_result['providers'][provider]['type']
+        basepath = flow_result['providers'][provider]['basepath']
+        output_dir = get_storage(storage_type, basepath=basepath)
+        try:
+            job_result_dir = output_dir.basepath
+            if os.path.exists(job_result_dir):
                 shutil.rmtree(job_result_dir)
                 logger.info(f"Successfully deleted job results from {basepath}")
-            except Exception as ex:
-                logger.error(f"Error while trying to delete job results from {basepath}")
-                logger.error(ex)
-                success = False
-        return success
+            else :
+                logger.warning(f"Job results does not exist. Nothing to delete from {basepath}.")
+                return False
+
+        except Exception as ex:
+            logger.error(f"Error while trying to delete job results from {basepath}")
+            logger.error(ex)
+            success = False
+    return success
+
+
+def get_flow_runs(
+        status: list[JobStatus] | None = None
+) -> list[JobStatusInfoInternal]:
+    """Get a list of flow runs, optionally filtered by status.
+
+    """
+    if status is not None:
+        prefect_states = []
+        for s in status:
+            for k, v in STATE_MAP.items():
+                if s == v:
+                    prefect_states.append(k)
+    else:
+        prefect_states = [
+            StateType.RUNNING,
+            StateType.COMPLETED,
+            StateType.CRASHED,
+            StateType.CANCELLED,
+            StateType.CANCELLING,
+            StateType.FAILED
+        ]
+    try:
+        flow_runs = _get_prefect_flow_runs(prefect_states, FLOW_RUN_NAME_PREFIX)
+    except httpx.ConnectError as err:
+        logger.error(f"Could not connect to prefect server: {str(err)}")
+        flow_runs = []
+
+    return flow_runs
+
 
 async def _get_prefect_flow_runs(
         states: list[StateType] | None = None, name_like: str | None = None
