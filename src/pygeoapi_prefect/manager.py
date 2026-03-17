@@ -649,7 +649,7 @@ class PrefectManager(BaseManager):
 
         # Add ownership information to the request
         try:
-            execution_request.properties["user_id"] = g.user_id
+            execution_request.properties["user_id"] = g.get("user_id")
         except AttributeError as err:
             logger.warning(err)
 
@@ -746,7 +746,7 @@ class PrefectManager(BaseManager):
 
         # Add ownership information to the request
         try:
-            execution_request.properties["user_id"] = g.user_id
+            execution_request.properties["user_id"] = g.get("user_id")
         except AttributeError as err:
             logger.warning(err)
 
