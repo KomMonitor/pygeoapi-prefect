@@ -302,6 +302,7 @@ class PrefectManager(BaseManager):
             'process_id': internal.process_id,
             'schedule_id': internal.schedule_id,
             'job_ids': internal.job_ids,
+            'user_id': internal.user_id,
             'created': internal.created,
             'updated': internal.updated,
             'status': internal.status,
@@ -847,12 +848,15 @@ class PrefectManager(BaseManager):
         job_ids = [self._flow_run_name_to_job_id(f.name) for f in flow_runs]
         try:
             schedule_inputs = deployment.parameters['execution_request']['inputs']
+            user_id = deployment.parameters['execution_request']['properties']['user_id']
         except KeyError:
             schedule_inputs = ''
+            user_id = ''
         return ScheduleStatusInfoInternal(
             process_id=prefect_flow.name,
             schedule_id=schedule_id,
             job_ids=job_ids,
+            user_id=user_id,
             created=deployment.created,
             updated=deployment.updated,
             status=deployment.status,
